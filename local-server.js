@@ -16,7 +16,7 @@ const { publicServerError } = await import('./api/_utils.js');
 const port = Number(process.env.PORT || 3000);
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const url = new URL(req.url, `http://${req.headers.host || 'payment-gateway-server-ten.vercel.app'}`);
 
   try {
     if (url.pathname.startsWith('/api/')) {
@@ -39,7 +39,7 @@ const server = http.createServer(async (req, res) => {
 
 server.on('error', (error) => {
   if (error?.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use. Open http://localhost:${port} if the server is already running, or start with a different port: $env:PORT=3001; npm start`);
+    console.error(`Port ${port} is already in use. If another local server is running, stop it or start with a different port: $env:PORT=3001; npm start`);
     process.exitCode = 1;
     return;
   }
@@ -49,7 +49,7 @@ server.on('error', (error) => {
 });
 
 server.listen(port, () => {
-  console.log(`Payment gateway running at http://localhost:${port}`);
+  console.log(`Payment gateway local server running on port ${port}. Live API: https://payment-gateway-server-ten.vercel.app`);
 });
 
 async function handleApi(req, res, url) {
@@ -177,7 +177,7 @@ function setStaticHeaders(res, filePath) {
   if (/\.(html|js|css)$/i.test(filePath)) {
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https: https://payment-gateway-server-ten.vercel.app; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     );
   }
 }

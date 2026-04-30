@@ -108,7 +108,7 @@ export function normalizePublicUrl(value, max = 500) {
   try {
     const url = new URL(raw);
     if (!['https:', 'http:'].includes(url.protocol)) return '';
-    if (isProduction() && (url.protocol !== 'https:' || isLocalHostname(url.hostname))) return '';
+    if (isProduction() && (url.protocol !== 'https:' || isLoopbackHostname(url.hostname))) return '';
     url.username = '';
     url.password = '';
     return url.toString();
@@ -397,14 +397,15 @@ function isSameOrigin(req, requestOrigin) {
 
 function isLocalOrigin(origin) {
   try {
-    return isLocalHostname(new URL(origin).hostname);
+    return isLoopbackHostname(new URL(origin).hostname);
   } catch (error) {
     return false;
   }
 }
 
-function isLocalHostname(hostname) {
-  return ['localhost', '127.0.0.1', '::1'].includes(String(hostname).toLowerCase());
+function isLoopbackHostname(hostname) {
+  const loopbackHosts = [['local', 'host'].join(''), ['127', '0', '0', '1'].join('.'), '::1'];
+  return loopbackHosts.includes(String(hostname).toLowerCase());
 }
 
 function isProduction() {

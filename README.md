@@ -15,10 +15,10 @@ npm install
 npm start
 ```
 
-Open:
+Live server:
 
 ```text
-http://localhost:3000
+https://payment-gateway-server-ten.vercel.app
 ```
 
 ## Environment variables
