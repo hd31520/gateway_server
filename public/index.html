@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payment Gateway</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="shell">
+    <section id="authView" class="auth-view">
+      <div class="intro">
+        <p class="eyebrow">Merchant payment gateway</p>
+        <h1>Payment Gateway</h1>
+        <p class="muted">Client accounts, monthly domain access, and transaction ID payment verification.</p>
+      </div>
+
+      <section class="panel auth-panel">
+        <div class="segmented" aria-label="Choose login type">
+          <button type="button" id="clientAuthTab" class="active">Client</button>
+          <button type="button" id="adminAuthTab">Admin</button>
+        </div>
+
+        <form id="clientLoginForm" class="auth-form">
+          <h2>Client Login</h2>
+          <label for="clientEmail">Email</label>
+          <input id="clientEmail" type="email" autocomplete="email" required />
+          <label for="clientPassword">Password</label>
+          <input id="clientPassword" type="password" autocomplete="current-password" required />
+          <button type="submit">Login</button>
+          <button type="button" id="showRegisterBtn" class="ghost">Create client account</button>
+        </form>
+
+        <form id="clientRegisterForm" class="auth-form hidden">
+          <h2>Client Register</h2>
+          <label for="registerName">Name</label>
+          <input id="registerName" autocomplete="name" required />
+          <label for="registerEmail">Email</label>
+          <input id="registerEmail" type="email" autocomplete="email" required />
+          <label for="registerPassword">Password</label>
+          <input id="registerPassword" type="password" autocomplete="new-password" required minlength="10" />
+          <button type="submit">Register</button>
+          <button type="button" id="showLoginBtn" class="ghost">Back to login</button>
+        </form>
+
+        <form id="adminLoginForm" class="auth-form hidden">
+          <h2>Admin Login</h2>
+          <label for="adminUsername">Admin email</label>
+          <input id="adminUsername" type="email" autocomplete="username" required />
+          <label for="adminPassword">Password</label>
+          <input id="adminPassword" type="password" autocomplete="current-password" required />
+          <button type="submit">Login</button>
+        </form>
+
+        <p id="authError" class="error" aria-live="polite"></p>
+      </section>
+    </section>
+
+    <section id="clientDashboard" class="hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Client panel</p>
+          <h1 id="clientName">Client</h1>
+          <p id="clientEmailText" class="muted"></p>
+        </div>
+        <button id="clientLogoutBtn" class="secondary">Logout</button>
+      </header>
+
+      <section class="stats">
+        <div class="panel stat"><span>Websites</span><strong id="websiteCount">0</strong></div>
+        <div class="panel stat"><span>Active domains</span><strong id="activeDomainCount">0</strong></div>
+        <div class="panel stat"><span>Due this month</span><strong id="monthlyDue">Tk 0</strong></div>
+      </section>
+
+      <div class="grid two">
+        <form id="websiteForm" class="panel">
+          <div class="section-title">
+            <h2>Add Website</h2>
+            <span class="price">Tk 60/month</span>
+          </div>
+          <label for="websiteName">Website name</label>
+          <input id="websiteName" placeholder="My Shop" required />
+          <label for="websiteDomain">Domain</label>
+          <input id="websiteDomain" placeholder="example.com" required />
+          <label for="walletProvider">Receiver wallet</label>
+          <select id="walletProvider" required>
+            <option value="bkash">bKash</option>
+            <option value="nagad">Nagad</option>
+            <option value="rocket">Rocket</option>
+            <option value="upay">Upay</option>
+            <option value="bank">Bank</option>
+            <option value="other">Other</option>
+          </select>
+          <label for="walletNumber">Receiver number</label>
+          <input id="walletNumber" placeholder="01XXXXXXXXX" required />
+          <label for="receiverName">Receiver name</label>
+          <input id="receiverName" placeholder="Business owner name" />
+          <button type="submit">Add Website</button>
+          <p id="websiteMessage" class="notice" aria-live="polite"></p>
+        </form>
+
+        <section class="panel">
+          <div class="section-title">
+            <h2>API Integration</h2>
+            <a class="button-link secondary tiny-link" href="/checkout.html">Open Client</a>
+          </div>
+          <label>Endpoint</label>
+          <code id="apiEndpoint" class="code-line">/api/merchant/verify</code>
+          <label>Request JSON</label>
+          <pre id="apiExample" class="code-block"></pre>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Your Websites</h2>
+          <button id="refreshClientBtn" class="secondary" type="button">Refresh</button>
+        </div>
+        <div id="websiteList" class="website-list"></div>
+      </section>
+    </section>
+
+    <section id="adminDashboard" class="hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Admin panel</p>
+          <h1>Payments</h1>
+          <p class="muted">SMS payment records from Android app</p>
+        </div>
+        <button id="adminLogoutBtn" class="secondary">Logout</button>
+      </header>
+
+      <section class="stats">
+        <div class="panel stat"><span>Total Records</span><strong id="totalCount">0</strong></div>
+        <div class="panel stat"><span>Total Amount</span><strong id="totalAmount">Tk 0</strong></div>
+      </section>
+
+      <section class="panel">
+        <div class="toolbar">
+          <input id="searchInput" placeholder="Search txn, sender, number..." />
+          <button id="searchBtn" type="button">Search</button>
+          <button id="refreshBtn" type="button" class="secondary">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Sender</th>
+                <th>Source</th>
+                <th>Txn ID</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Used For</th>
+                <th>Message</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="paymentsBody"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button id="prevBtn" type="button" class="secondary">Prev</button>
+          <span id="pageInfo">Page 1</span>
+          <button id="nextBtn" type="button" class="secondary">Next</button>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

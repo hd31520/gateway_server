@@ -1,0 +1,20 @@
+{
+  "name": "payment-gateway-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node local-server.js",
+    "vercel:dev": "vercel dev",
+    "start": "node local-server.js",
+    "check": "node --check api/_utils.js && node --check api/_auth.js && node --check api/admin.js && node --check api/client/me.js && node --check api/merchant/verify.js && node --check local-server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "jsonwebtoken": "9.0.3",
+    "mongodb": "7.2.0"
+  },
+  "devDependencies": {
+    "vercel": "52.0.0"
+  }
+}

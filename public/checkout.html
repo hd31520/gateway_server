@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Checkout Client</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="shell checkout-shell">
+    <header class="topbar checkout-topbar">
+      <div>
+        <p class="eyebrow">Merchant checkout</p>
+        <h1>Checkout Client</h1>
+        <p class="muted">Verify payments with transaction ID and amount.</p>
+      </div>
+      <a class="button-link secondary" href="/">Dashboard</a>
+    </header>
+
+    <section class="checkout-grid">
+      <form id="checkoutConfigForm" class="panel">
+        <div class="section-title">
+          <h2>Gateway</h2>
+          <span id="configStatus" class="badge warning">Unsaved</span>
+        </div>
+
+        <label for="gatewayEndpoint">Verify endpoint</label>
+        <input id="gatewayEndpoint" value="/api/merchant/verify" required />
+
+        <label for="gatewayApiKey">Website API key</label>
+        <input id="gatewayApiKey" placeholder="pg_live_..." required />
+
+        <label for="gatewayDomain">Website domain</label>
+        <input id="gatewayDomain" placeholder="example.com" required />
+
+        <button type="submit">Save Gateway</button>
+        <p id="configMessage" class="notice" aria-live="polite"></p>
+      </form>
+
+      <section class="panel checkout-summary">
+        <div class="summary-line">
+          <span>Order</span>
+          <strong id="summaryOrder">ORDER</strong>
+        </div>
+        <div class="summary-line">
+          <span>Amount</span>
+          <strong id="summaryAmount">Tk 0.00</strong>
+        </div>
+        <div class="summary-line">
+          <span>Status</span>
+          <strong id="summaryStatus">Ready</strong>
+        </div>
+      </section>
+    </section>
+
+    <section class="checkout-grid main-checkout">
+      <form id="paymentVerifyForm" class="panel checkout-card">
+        <div class="section-title">
+          <h2>Payment</h2>
+          <span class="badge dark">VERIFY</span>
+        </div>
+
+        <label for="orderId">Order ID</label>
+        <input id="orderId" required />
+
+        <label for="sellerName">Seller name</label>
+        <input id="sellerName" placeholder="Merchant or seller name" />
+
+        <label for="buyerName">Buyer name</label>
+        <input id="buyerName" placeholder="Customer name" />
+
+        <label for="buyerAddress">Buyer address</label>
+        <input id="buyerAddress" placeholder="Customer address" />
+
+        <label for="paymentAmount">Amount</label>
+        <input id="paymentAmount" type="number" min="1" step="0.01" value="500" required />
+
+        <label for="transactionId">Transaction ID</label>
+        <input id="transactionId" placeholder="Customer TrxID" required />
+
+        <label for="returnUrl">Return URL</label>
+        <input id="returnUrl" placeholder="https://shop.example/order-return" />
+
+        <button type="submit">Verify Payment</button>
+        <p id="paymentMessage" class="notice" aria-live="polite"></p>
+      </form>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Response</h2>
+          <button id="copyPayloadBtn" type="button" class="secondary tiny">Copy</button>
+        </div>
+        <pre id="checkoutResponse" class="code-block checkout-response"></pre>
+      </section>
+    </section>
+  </main>
+  <script src="/checkout.js"></script>
+</body>
+</html>
