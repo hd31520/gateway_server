@@ -7,6 +7,7 @@ import {
   handleCors,
   normalizeDomain,
   normalizeWalletNumber,
+  publicServerError,
   serializeWebsite
 } from '../_utils.js';
 
@@ -77,6 +78,6 @@ export default async function handler(req, res) {
       return res.status(409).json({ success: false, error: 'This domain is already registered' });
     }
     console.error(error);
-    return res.status(500).json({ success: false, error: 'Server error' });
+    return res.status(500).json({ success: false, error: publicServerError(error) });
   }
 }

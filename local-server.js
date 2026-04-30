@@ -12,6 +12,7 @@ const MAX_BODY_BYTES = 1_048_576;
 await loadEnvFile('.env', true);
 await loadEnvFile('.env.local', true);
 
+const { publicServerError } = await import('./api/_utils.js');
 const port = Number(process.env.PORT || 3000);
 
 const server = http.createServer(async (req, res) => {
@@ -27,11 +28,24 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     console.error(error);
     if (!res.headersSent) {
-      res.statusCode = error.statusCode || 500;
+      res.statusCode = Number(error.statusCode || 500);
       res.setHeader('Content-Type', 'application/json');
     }
-    res.end(JSON.stringify({ success: false, error: error.statusCode === 413 ? error.message : 'Server error' }));
+    const statusCode = Number(error.statusCode || res.statusCode || 500);
+    const message = statusCode >= 400 && statusCode < 500 ? error.message : publicServerError(error);
+    res.end(JSON.stringify({ success: false, error: message }));
   }
+});
+
+server.on('error', (error) => {
+  if (error?.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use. Open http://localhost:${port} if the server is already running, or start with a different port: $env:PORT=3001; npm start`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.error('Unable to start the payment gateway local server:', error?.message || error);
+  process.exitCode = 1;
 });
 
 server.listen(port, () => {
@@ -107,6 +121,11 @@ async function readBody(req) {
   try {
     return JSON.parse(raw);
   } catch (error) {
+    if (String(req.headers['content-type'] || '').toLowerCase().includes('application/json')) {
+      const parseError = new Error('Invalid JSON request body');
+      parseError.statusCode = 400;
+      throw parseError;
+    }
     return {};
   }
 }

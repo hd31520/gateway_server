@@ -1,0 +1,8 @@
+Retrieving project…
+Resolving deployment "payment-gateway-server-ten.vercel.app"
+Streaming logs for deployment dpl_6Yes7wmbZwga3PmCm45UMWwZgFeJ starting from 00:02:11.94
+
+waiting for new logs...
+Error: An unexpected error occurred in logs: FetchError: request to https://api.vercel.com/v1/projects/prj_3rBucfGZUMPHehcVi3mJW4FHLCyI/deployments/dpl_6Yes7wmbZwga3PmCm45UMWwZgFeJ/runtime-logs?format=lines&teamId=team_mltWatrelyadwzv8wLIamO9H failed, reason: read ECONNRESET
+WARNING! Command automatically interrupted after 5 minutes.
+

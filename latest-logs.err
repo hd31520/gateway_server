@@ -1,0 +1,21 @@
+Retrieving project…
+Resolving deployment "dpl_69F2tBYQxMfVKefRZHJN44i1r5Ar"
+Streaming logs for deployment dpl_69F2tBYQxMfVKefRZHJN44i1r5Ar starting from 00:07:19.28
+
+waiting for new logs...
+00:07:20.56  🚫  POST  ---  payment-gateway-server-ten.vercel.app  ƒ  /api/client/login
+---------------------------------------------------------------------------------------
+te [Error]: Invalid JSON
+    at /opt/rust/nodejs.js:2:8908
+    at IncomingMessage.get [as body] (/opt/rust/nodejs.js:2:11213)
+    at Object.handler (file:///var/task/api/client/login.js:14:38)
+    at r (/opt/rust/nodejs.js:2:15580)
+    at Server.<anonymous> (/opt/rust/nodejs.js:2:11600)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10685) {
+  statusCode: 400
+}
+
+waiting for new logs...
+WARNING! Command automatically interrupted after 5 minutes.
+

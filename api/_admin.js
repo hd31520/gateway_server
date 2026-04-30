@@ -40,7 +40,7 @@ export async function createAdminSession(body = {}) {
     return { ok: false, status: 500, error: 'Server missing ADMIN_PASSWORD_HASH or ADMIN_PASSWORD' };
   }
 
-  if (isProduction() && passwordPlain && passwordPlain.length < MIN_ADMIN_PASSWORD_LENGTH) {
+  if (passwordPlain && passwordPlain.length < MIN_ADMIN_PASSWORD_LENGTH) {
     return { ok: false, status: 500, error: `ADMIN_PASSWORD must be at least ${MIN_ADMIN_PASSWORD_LENGTH} characters` };
   }
 
@@ -61,8 +61,4 @@ export async function createAdminSession(body = {}) {
   const token = signAdminToken(admin);
 
   return { ok: true, token, admin, config };
-}
-
-function isProduction() {
-  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
 }
