@@ -19,13 +19,16 @@ export function unwrapMongoResult(result) {
 }
 
 export function adminPaymentRecordFilter() {
-  return {
-    $or: [
-      { submittedBy: 'admin' },
-      { submittedBy: 'android', submittedByClientId: { $exists: false }, clientId: { $exists: false } },
-      { submittedByAdmin: { $exists: true, $ne: '' } }
-    ]
-  };
+  const filters = [
+    { submittedBy: 'admin' },
+    { submittedByAdmin: { $exists: true, $ne: '' } }
+  ];
+
+  if (trustLegacyAndroidAdminSms()) {
+    filters.push({ submittedBy: 'android', submittedByClientId: { $exists: false }, clientId: { $exists: false } });
+  }
+
+  return { $or: filters };
 }
 
 export async function activateWebsiteFromAdminPayment(options = {}) {
@@ -225,6 +228,10 @@ function unusedPaymentFilter() {
       { usedFor: '' }
     ]
   };
+}
+
+function trustLegacyAndroidAdminSms() {
+  return process.env.TRUST_LEGACY_ANDROID_ADMIN_SMS === 'true';
 }
 
 export function toObjectId(value) {

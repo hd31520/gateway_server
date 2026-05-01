@@ -28,16 +28,20 @@ Add these in Vercel Project Settings > Environment Variables, and also in local 
 ```text
 MONGODB_URI
 MONGODB_DB
-ANDROID_API_TOKEN
 JWT_SECRET
 ADMIN_EMAIL
 ADMIN_PASSWORD_HASH or ADMIN_PASSWORD
 ADMIN_BKASH_NUMBER
 ADMIN_NAGAD_NUMBER
 CORS_ORIGINS
+ALLOW_LEGACY_ANDROID_API_TOKEN
+ANDROID_API_TOKEN
+TRUST_LEGACY_ANDROID_ADMIN_SMS
 ```
 
-Do not use values from `.env.example` directly. `JWT_SECRET` and `ANDROID_API_TOKEN` should be long random strings. In production, set `CORS_ORIGINS` to the exact client origins that may call the API, for example `https://client.example.com,https://admin.example.com`.
+Do not use values from `.env.example` directly. `JWT_SECRET` should be a long random string. In production, set `CORS_ORIGINS` to the exact client origins that may call the API, for example `https://client.example.com,https://admin.example.com`.
+
+`ANDROID_API_TOKEN` is legacy-only and is ignored unless `ALLOW_LEGACY_ANDROID_API_TOKEN=true`. Do not enable it for normal merchant phones. If a legacy owner/admin Android submitter must still activate billing from gateway SMS records, also set `TRUST_LEGACY_ANDROID_ADMIN_SMS=true`; otherwise static-token SMS records cannot approve billing.
 
 ## Android SMS endpoint
 
@@ -54,7 +58,7 @@ Content-Type: application/json
 Authorization: Bearer CLIENT_LOGIN_TOKEN
 ```
 
-`ANDROID_API_TOKEN` is still supported for controlled server-to-server or legacy Android submitters, but the client login token is the recommended path.
+Client login token is the required path for merchant phones. Legacy static-token submission is disabled by default because it is not tied to a merchant account.
 
 Body:
 
@@ -151,6 +155,7 @@ Rules:
 - The domain must be active with monthly Tk 60 paid.
 - The API key must belong to that domain.
 - The `transaction_id` and `amount` must match an unused Android SMS payment. If the merchant verifies before the SMS arrives, the request is saved as `pending_sms` and is approved automatically when the matching Android SMS is uploaded.
+- Merchant matching only uses SMS records uploaded by that merchant's own logged-in Android account. Admin/gateway SMS records and other merchants' SMS records are not eligible.
 - A transaction ID can only be used once.
 - Manual acceptance is disabled by default. Only enable `ALLOW_MANUAL_MERCHANT_ACCEPT=true` if you intentionally accept the fraud risk.
 
@@ -182,8 +187,8 @@ https://YOUR-VERCEL-PROJECT.vercel.app/api/merchant/verify
 
 ## Security notes
 
-- Do not publish `ANDROID_API_TOKEN`, `JWT_SECRET`, or website API keys publicly.
-- The Android app does not show the gateway API URL in its UI, and it should never embed `ANDROID_API_TOKEN`; users login with client tokens instead.
+- Do not publish `JWT_SECRET`, legacy `ANDROID_API_TOKEN`, or website API keys publicly.
+- The Android app does not show the gateway API URL in its UI, and it must not embed `ANDROID_API_TOKEN`; users login with client tokens instead.
 - Use a long random `JWT_SECRET`.
 - Prefer `ADMIN_PASSWORD_HASH` over a plain `ADMIN_PASSWORD`.
 - Do not commit real `.env` values or MongoDB credentials.

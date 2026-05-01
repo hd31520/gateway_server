@@ -57,7 +57,7 @@ export async function requireSmsSubmitter(req, res) {
   const token = getBearerToken(req);
   const expectedAndroidToken = process.env.ANDROID_API_TOKEN;
 
-  if (expectedAndroidToken && safeEqual(token, expectedAndroidToken)) {
+  if (legacyAndroidTokenEnabled() && expectedAndroidToken && safeEqual(token, expectedAndroidToken)) {
     return { role: 'android', type: 'static-token' };
   }
 
@@ -88,6 +88,10 @@ export async function requireSmsSubmitter(req, res) {
 
   res.status(401).json({ success: false, error: 'Android app login required' });
   return null;
+}
+
+function legacyAndroidTokenEnabled() {
+  return process.env.ALLOW_LEGACY_ANDROID_API_TOKEN === 'true';
 }
 
 export async function requireAdmin(req, res) {

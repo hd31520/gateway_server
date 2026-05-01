@@ -30,13 +30,29 @@ export async function getMerchantVerification(db, id) {
 }
 
 export function ownerPaymentFilter(clientId) {
+  return clientSmsPaymentFilter(clientId);
+}
+
+export function clientSmsPaymentFilter(clientId) {
   const values = objectIdValues(clientId);
   if (!values.length) return { _id: null };
 
   return {
-    $or: [
-      { clientId: { $in: values } },
-      { submittedByClientId: { $in: values } }
+    $and: [
+      {
+        $or: [
+          { submittedBy: 'client' },
+          { submittedBy: { $exists: false } }
+        ]
+      },
+      { submittedByAdmin: { $exists: false } },
+      { adminClientId: { $exists: false } },
+      {
+        $or: [
+          { submittedByClientId: { $in: values } },
+          { clientId: { $in: values }, submittedByClientId: { $exists: false } }
+        ]
+      }
     ]
   };
 }
@@ -116,6 +132,7 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
   const transactionId = normalizeMerchantTransactionId(payment?.transaction_id);
   const amount = normalizeAmount(payment?.amount);
   if (!db || !payment || !transactionId || !amount) return null;
+  if (!paymentIsUnused(payment)) return null;
 
   const pendingItems = await db.collection('merchant_verification_requests')
     .find({
@@ -142,12 +159,23 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
     };
   }
 
-  const paymentId = payment._id || null;
+  const paymentId = toObjectId(payment._id);
+  if (!paymentId) return null;
+
+  const claimedPayment = await claimPaymentForMerchant(db, {
+    paymentId,
+    pending,
+    transactionId,
+    amount,
+    now
+  });
+  if (!claimedPayment) return null;
+
   const verification = {
     clientId: pending.clientId,
     websiteId: pending.websiteId,
     domain: pending.domain || '',
-    paymentId,
+    paymentId: claimedPayment._id,
     transaction_id: transactionId,
     amount,
     order_id: pending.order_id || null,
@@ -163,23 +191,6 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
   const result = await db.collection('payment_verifications').insertOne(verification);
   verification._id = result.insertedId;
 
-  if (paymentId) {
-    await db.collection('payments').updateOne(
-      { _id: paymentId },
-      {
-        $set: {
-          status: 'verified',
-          usedFor: 'merchant_payment',
-          usedBy: pending.websiteId,
-          websiteId: pending.websiteId,
-          clientId: pending.clientId,
-          verifiedAt: now,
-          updatedAt: now
-        }
-      }
-    );
-  }
-
   await markMerchantRequestVerified(db, pending, verification, now);
 
   return {
@@ -191,6 +202,33 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
     transaction_id: transactionId,
     amount
   };
+}
+
+async function claimPaymentForMerchant(db, { paymentId, pending, transactionId, amount, now }) {
+  const result = await db.collection('payments').findOneAndUpdate(
+    {
+      $and: [
+        { _id: paymentId },
+        { transaction_id: transactionId, amount, status: { $ne: 'rejected' } },
+        clientSmsPaymentFilter(pending.clientId),
+        unusedPaymentFilter()
+      ]
+    },
+    {
+      $set: {
+        status: 'verified',
+        usedFor: 'merchant_payment',
+        usedBy: pending.websiteId,
+        websiteId: pending.websiteId,
+        clientId: pending.clientId,
+        verifiedAt: now,
+        updatedAt: now
+      }
+    },
+    { returnDocument: 'after' }
+  );
+
+  return unwrapMongoResult(result);
 }
 
 async function markMerchantRequestVerified(db, pending, verification, now) {
@@ -210,13 +248,30 @@ async function markMerchantRequestVerified(db, pending, verification, now) {
 
 function paymentBelongsToClient(payment, clientId) {
   const clientValues = objectIdValues(clientId).map(String);
+  const submittedBy = String(payment?.submittedBy || '');
+  if (submittedBy && submittedBy !== 'client') return false;
+  if (payment?.submittedByAdmin || payment?.adminClientId) return false;
+
   const paymentValues = [
-    payment.clientId,
     payment.submittedByClientId,
-    payment.adminClientId
+    payment.submittedByClientId ? null : payment.clientId
   ].filter(Boolean).map(String);
 
   return paymentValues.some((value) => clientValues.includes(value));
+}
+
+function paymentIsUnused(payment) {
+  return !payment?.usedFor;
+}
+
+function unusedPaymentFilter() {
+  return {
+    $or: [
+      { usedFor: { $exists: false } },
+      { usedFor: null },
+      { usedFor: '' }
+    ]
+  };
 }
 
 function objectIdValues(value) {

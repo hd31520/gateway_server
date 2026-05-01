@@ -24,6 +24,12 @@ export function setSecurityHeaders(res) {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('Cache-Control', 'no-store');
+  if (isProduction()) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
 }
 
 export function setCors(req, res, methods = 'GET, POST, PATCH, OPTIONS') {

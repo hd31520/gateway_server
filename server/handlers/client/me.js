@@ -7,6 +7,7 @@ import {
   normalizeTransactionId,
   upsertBillingRequest
 } from '../_billing.js';
+import { clientSmsPaymentFilter } from '../_merchant_verification.js';
 import {
   BRAND_OPENING_FEE,
   WEBSITE_PLAN_TIERS,
@@ -345,12 +346,7 @@ async function handleBilling(req, res, db, clientId) {
 }
 
 function ownerPaymentQuery(clientId) {
-  return {
-    $or: [
-      { clientId },
-      { submittedByClientId: clientId }
-    ]
-  };
+  return clientSmsPaymentFilter(clientId);
 }
 
 function sumAmounts(items, field = 'amount') {

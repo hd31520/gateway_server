@@ -7,6 +7,6 @@ export default async function handler(req, res) {
   res.status(200).json({
     success: true,
     message: 'Payment gateway API is running',
-    version: 'security-dynamic-client-android-2026-04-29'
+    version: 'merchant-sms-isolation-auto-approval-2026-05-01'
   });
 }

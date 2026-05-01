@@ -136,7 +136,8 @@ export default async function handler(req, res) {
       payment.submittedByAdmin = submitter.username || '';
     }
 
-    await db.collection('payments').insertOne(payment);
+    const insertResult = await db.collection('payments').insertOne(payment);
+    payment._id = insertResult.insertedId;
     await upsertClientDevice(db, submitter, body, now, true);
     const autoApproval = await autoApprovePendingAdminPayment(db, payment, now);
     const savedPayment = autoApproval
@@ -228,8 +229,8 @@ async function autoApprovePendingAdminPayment(db, payment, now) {
 
 function isAdminPayment(payment) {
   return payment?.submittedBy === 'admin'
-    || payment?.submittedBy === 'android'
-    || Boolean(payment?.submittedByAdmin);
+    || Boolean(payment?.submittedByAdmin)
+    || (payment?.submittedBy === 'android' && process.env.TRUST_LEGACY_ANDROID_ADMIN_SMS === 'true');
 }
 
 async function upsertClientDevice(db, submitter, body, now, countSms) {
