@@ -1,8 +1,7 @@
 import { revokeBearerToken } from './_auth.js';
-import { handleCors, publicServerError } from './_utils.js';
+import { publicServerError } from './_utils.js';
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'POST, OPTIONS')) return;
 
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
