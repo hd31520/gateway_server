@@ -2,8 +2,6 @@ import { createAdminSession } from './_admin.js';
 import { rateLimit, safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'POST, OPTIONS')) return;
-
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }

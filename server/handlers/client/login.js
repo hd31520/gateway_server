@@ -5,8 +5,6 @@ import { createAdminSession, getAdminConfig } from '../_admin.js';
 import { cleanString, normalizeEmail, publicServerError, rateLimit, safeRequestBody, serializeClient } from '../_utils.js';
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'POST, OPTIONS')) return;
-
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
@@ -50,7 +48,7 @@ export default async function handler(req, res) {
         { upsert: true, returnDocument: 'after' }
       );
 
-      const client = storedAdmin.value || adminClient;
+      const client = storedAdmin?.value || storedAdmin || adminClient;
       const token = signClientToken(client);
       return res.status(200).json({
         success: true,

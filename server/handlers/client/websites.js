@@ -20,6 +20,9 @@ import { safeRequestBody } from '../_utils.js';
 export default async function handler(req, res) {
   const auth = await requireClient(req, res);
   if (!auth) return;
+  if (!ObjectId.isValid(auth.id)) {
+    return res.status(401).json({ success: false, error: 'Client login required' });
+  }
 
   try {
     const db = await getDb();

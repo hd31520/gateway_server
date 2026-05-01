@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireAdmin, signAdminToken } from './_auth.js';
-import { createAdminSession } from './_admin.js';
+import { createAdminSession, getAdminConfig } from './_admin.js';
 import { publicServerError, safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {

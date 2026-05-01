@@ -17,10 +17,11 @@ import {
 import { safeRequestBody } from '../_utils.js';
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'POST, OPTIONS')) return;
-
   const auth = await requireClient(req, res);
   if (!auth) return;
+  if (!ObjectId.isValid(auth.id)) {
+    return res.status(401).json({ success: false, error: 'Client login required' });
+  }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
