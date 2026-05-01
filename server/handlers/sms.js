@@ -149,9 +149,9 @@ export default async function handler(req, res) {
     return res.status(201).json({
       success: true,
       message: merchantAutoVerification
-        ? 'Payment saved and pending merchant verification approved'
+        ? 'Payment saved and matching merchant verification auto-approved'
         : autoApproval
-          ? 'Payment saved and pending brand activated'
+          ? 'Payment saved and matching brand request auto-approved'
           : 'Payment saved',
       autoApproval,
       merchantAutoVerification,
