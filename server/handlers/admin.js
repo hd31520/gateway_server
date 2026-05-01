@@ -295,11 +295,23 @@ async function handleUserAction(req, res, body) {
 async function handleMerchantVerificationAction(req, res, body) {
   try {
     const db = await getDb();
-    const verificationId = new ObjectId(body.verificationId);
+    // Accept both 'id' and 'verificationId' for backward compatibility
+    const idValue = body.id || body.verificationId;
+    if (!idValue) {
+      return res.status(400).json({ success: false, error: 'Missing id or verificationId' });
+    }
+
+    let verificationId;
+    try {
+      verificationId = new ObjectId(idValue);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid verification ID format' });
+    }
+
     const status = String(body.status || '').toLowerCase();
     const adminNote = String(body.adminNote || '').trim().slice(0, 500);
 
-    if (!['approved', 'rejected', 'pending'].includes(status)) {
+    if (!['approved', 'rejected', 'pending', 'manual_approved', 'verified'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Invalid verification status' });
     }
 
