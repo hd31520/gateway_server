@@ -1,6 +1,11 @@
 export const MONTHLY_DOMAIN_FEE = 60;
 export const BRAND_OPENING_FEE = Number(process.env.BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE);
 export const DEFAULT_ANDROID_APP_DOWNLOAD_PATH = '/gatewayflow-android.apk';
+export const WEBSITE_PLAN_TIERS = [
+  { id: 'site-1', name: '1 Website', duration: '1 Month', price: 60, websites: 1 },
+  { id: 'site-5', name: '5 Websites', duration: '1 Month', price: 200, websites: 5 },
+  { id: 'site-20', name: '20 Websites', duration: '1 Month', price: 400, websites: 20 }
+];
 
 export function computePlanAmount(siteCount) {
   const n = Number(siteCount || 1) || 1;
@@ -386,6 +391,7 @@ export function serializeBillingRequest(request) {
     transaction_id: request.transaction_id || '',
     amount: Number(request.amount || 0),
     months: Number(request.months || 1),
+    siteCount: Number(request.siteCount || 1),
     status: request.status || 'pending_review',
     note: request.note || '',
     adminNote: request.adminNote || '',

@@ -9,7 +9,9 @@ import {
 } from '../_billing.js';
 import {
   BRAND_OPENING_FEE,
+  WEBSITE_PLAN_TIERS,
   cleanString,
+  computePlanAmount,
   defaultClientSettings,
   getAndroidAppDownloadUrl,
   isWebsiteActive,
@@ -28,16 +30,7 @@ import {
 } from '../_utils.js';
 import { safeRequestBody } from '../_utils.js';
 
-const plans = [
-  { id: 'free-3', name: 'Free Plan', duration: '3 Days', price: 0, websites: 1 },
-  { id: 'basic-15', name: 'Basic 15', duration: '15 Days', price: 25, websites: 1 },
-  { id: 'site-30', name: '1 Site', duration: '1 Month', price: 30, websites: 1 },
-  { id: 'starter-30', name: '30 Days', duration: '1 Month', price: 50, websites: 5 },
-  { id: 'business-30', name: 'Business 30', duration: '1 Month', price: 100, websites: 10 },
-  { id: 'basic-365', name: 'Basic 365', duration: '1 Year', price: 500, websites: 5 },
-  { id: 'standard-365', name: 'Standard 365', duration: '1 Year', price: 1000, websites: 10 },
-  { id: 'ultimate-365', name: 'Ultimate 365', duration: '1 Year', price: 3000, websites: -1 }
-];
+const plans = WEBSITE_PLAN_TIERS;
 
 const docs = [
   {
@@ -288,11 +281,20 @@ async function handleBilling(req, res, db, clientId) {
 
   const websiteId = cleanString(body.websiteId || body.website_id, 80);
   const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId);
-  const amount = Number(body.amount || BRAND_OPENING_FEE);
+  const siteCount = Math.min(Math.max(Number(body.siteCount || 1), 1), 500);
   const months = Math.min(Math.max(Number(body.months || 1), 1), 24);
+  const expectedAmount = Number((computePlanAmount(siteCount) * months).toFixed(2));
+  const amount = Number(body.amount || expectedAmount);
 
   if (!ObjectId.isValid(websiteId) || !transactionId) {
     return res.status(400).json({ success: false, error: 'websiteId and transaction_id are required' });
+  }
+
+  if (amount !== expectedAmount) {
+    return res.status(400).json({
+      success: false,
+      error: `Submitted amount must equal Tk ${expectedAmount} for ${siteCount} website${siteCount > 1 ? 's' : ''}`
+    });
   }
 
   const websiteObjectId = new ObjectId(websiteId);
@@ -302,14 +304,13 @@ async function handleBilling(req, res, db, clientId) {
   }
 
   const now = new Date();
-  const expectedAmount = Number((Number(website.brandCharge || website.monthlyFee || BRAND_OPENING_FEE) * months).toFixed(2));
   const activation = await activateWebsiteFromAdminPayment({
     db,
     website,
     websiteId: websiteObjectId,
     clientId,
     transactionId,
-    amount: amount || expectedAmount,
+    amount: expectedAmount,
     months,
     purpose: isWebsiteActive(website, now) ? 'domain_subscription' : 'brand_opening',
     now
@@ -321,8 +322,9 @@ async function handleBilling(req, res, db, clientId) {
     websiteId: websiteObjectId,
     domain: website.domain,
     transactionId,
-    amount: amount || expectedAmount,
+    amount: expectedAmount,
     months,
+    siteCount,
     status: activation ? 'approved' : 'pending_review',
     note: cleanString(body.note, 500) || 'Billing payment submitted from client portal',
     adminNote: activation ? 'Auto approved after matching admin SMS payment' : 'Waiting for matching admin SMS payment or admin review',

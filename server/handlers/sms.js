@@ -9,6 +9,7 @@ import { autoApprovePendingMerchantVerification } from './_merchant_verification
 import {
   BRAND_OPENING_FEE,
   cleanString,
+  computePlanAmount,
 
   normalizeAmount,
   publicServerError,
@@ -182,8 +183,8 @@ async function autoApprovePendingAdminPayment(db, payment, now) {
   if (!website) return null;
 
   const months = Math.min(Math.max(Number(request.months || 1), 1), 24);
-  const monthlyFee = Number(website.brandCharge || website.monthlyFee || BRAND_OPENING_FEE);
-  const expectedAmount = Number((monthlyFee * months).toFixed(2));
+  const siteCount = Math.min(Math.max(Number(request.siteCount || 1), 1), 500);
+  const expectedAmount = Number((computePlanAmount(siteCount) * months).toFixed(2));
   if (!isSameAmount(payment.amount, expectedAmount)) return null;
 
   const activation = await activateWebsiteFromAdminPayment({
@@ -207,6 +208,7 @@ async function autoApprovePendingAdminPayment(db, payment, now) {
     transactionId: payment.transaction_id,
     amount: payment.amount,
     months,
+    siteCount,
     status: 'approved',
     note: request.note || '',
     adminNote: 'Auto approved after matching admin SMS payment',

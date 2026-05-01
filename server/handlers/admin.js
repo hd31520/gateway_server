@@ -1,9 +1,11 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
-import { requireAdmin, signAdminToken } from './_auth.js';
+import { requireAdmin } from './_auth.js';
 import { createAdminSession, getAdminConfig } from './_admin.js';
+import { unwrapMongoResult } from './_billing.js';
 import {
   BRAND_OPENING_FEE,
+  addOneMonth,
   getAndroidAppDownloadUrl,
   publicServerError,
   safeRequestBody,
@@ -78,17 +80,42 @@ async function handleAdminGet(req, res) {
       db.collection('websites').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
       db.collection('payments').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
       db.collection('billing_requests').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
-      db.collection('merchant_verifications').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
+      db.collection('merchant_verification_requests').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
       db.collection('client_devices').find({}).sort({ lastSeenAt: -1 }).limit(50).toArray(),
       db.collection('support_tickets').find({}).sort({ createdAt: -1 }).limit(50).toArray(),
       db.collection('admin_settings').findOne({})
     ]);
 
-    const brandedWebsites = websites.map((website) => serializeWebsite(website));
     const serializedClients = clients.map((client) => serializeClient(client));
+    const clientById = new Map(serializedClients.map((client) => [client.id, client]));
+    const websiteById = new Map(websites.map((website) => [String(website._id), website]));
+    const brandedWebsites = websites.map((website) => ({
+      ...serializeWebsite(website),
+      clientEmail: clientById.get(String(website.clientId))?.email || '',
+      clientName: clientById.get(String(website.clientId))?.name || ''
+    }));
     const serializedPayments = payments.map((payment) => serializePayment(payment));
-    const serializedBillingRequests = billingRequests.map((request) => serializeBillingRequest(request));
-    const serializedMerchantVerifications = merchantVerifications.map((item) => serializeMerchantVerification(item));
+    const serializedBillingRequests = billingRequests.map((request) => {
+      const client = clientById.get(String(request.clientId));
+      const website = websiteById.get(String(request.websiteId));
+      return {
+        ...serializeBillingRequest(request),
+        clientEmail: client?.email || '',
+        clientName: client?.name || '',
+        brandName: website?.name || '',
+        domain: request.domain || website?.domain || ''
+      };
+    });
+    const serializedMerchantVerifications = merchantVerifications.map((item) => {
+      const client = clientById.get(String(item.clientId));
+      const website = websiteById.get(String(item.websiteId));
+      return {
+        ...serializeMerchantVerification(item),
+        clientEmail: client?.email || '',
+        clientName: client?.name || '',
+        brandName: website?.name || ''
+      };
+    });
     const serializedDevices = devices.map((device) => serializeDevice(device));
     const serializedTickets = tickets.map((ticket) => serializeTicket(ticket));
 
@@ -220,17 +247,24 @@ async function handleAdminPatch(req, res) {
 async function handleBrandAction(req, res, body) {
   try {
     const db = await getDb();
-    const websiteId = new ObjectId(body.websiteId);
-    const newStatus = String(body.brandStatus || '').toLowerCase();
-    const adminNote = String(body.adminNote || '').trim().slice(0, 500);
+    const websiteIdValue = body.websiteId || body.id;
+    if (!ObjectId.isValid(String(websiteIdValue || ''))) {
+      return res.status(400).json({ success: false, error: 'Valid websiteId is required' });
+    }
 
-    if (!['active', 'pending_review', 'rejected'].includes(newStatus)) {
+    const websiteId = new ObjectId(websiteIdValue);
+    const newStatus = String(body.brandStatus || '').toLowerCase();
+    const paymentStatus = String(body.paymentStatus || '').toLowerCase();
+    const adminNote = String(body.adminNote || '').trim().slice(0, 500);
+    const months = Math.min(Math.max(Number(body.months || 1), 1), 24);
+
+    if (!['active', 'pending_review', 'rejected', 'suspended'].includes(newStatus)) {
       return res.status(400).json({ success: false, error: 'Invalid brand status' });
     }
 
     const update = {
       brandStatus: newStatus,
-      paymentStatus: newStatus,
+      paymentStatus: paymentStatus || statusToPaymentStatus(newStatus),
       updatedAt: new Date()
     };
 
@@ -239,8 +273,21 @@ async function handleBrandAction(req, res, body) {
     }
 
     if (newStatus === 'active') {
-      update.approvedAt = new Date();
+      const now = new Date();
+      const website = await db.collection('websites').findOne({ _id: websiteId });
+      const baseDate = website?.paidUntil && new Date(website.paidUntil) > now
+        ? new Date(website.paidUntil)
+        : now;
+      let paidUntil = baseDate;
+      for (let index = 0; index < months; index += 1) paidUntil = addOneMonth(paidUntil);
+
+      update.paidUntil = paidUntil;
+      update.approvedAt = website?.approvedAt || now;
       update.androidAppEnabled = true;
+    }
+
+    if (newStatus === 'suspended' || newStatus === 'rejected') {
+      update.androidAppEnabled = false;
     }
 
     const result = await db.collection('websites').findOneAndUpdate(
@@ -249,11 +296,28 @@ async function handleBrandAction(req, res, body) {
       { returnDocument: 'after' }
     );
 
-    if (!result.value) {
+    const updatedWebsite = unwrapMongoResult(result);
+    if (!updatedWebsite) {
       return res.status(404).json({ success: false, error: 'Brand not found' });
     }
 
-    return res.status(200).json({ success: true, website: result.value });
+    const billingRequestId = body.billingRequestId || body.requestId;
+    if (billingRequestId && ObjectId.isValid(String(billingRequestId))) {
+      await db.collection('billing_requests').updateOne(
+        { _id: new ObjectId(billingRequestId) },
+        {
+          $set: {
+            status: newStatus === 'active' ? 'approved' : newStatus === 'rejected' ? 'rejected' : 'pending_review',
+            reviewedAt: new Date(),
+            reviewedBy: 'admin',
+            adminNote,
+            updatedAt: new Date()
+          }
+        }
+      );
+    }
+
+    return res.status(200).json({ success: true, website: updatedWebsite });
   } catch (error) {
     console.error('Brand action error:', error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
@@ -263,16 +327,27 @@ async function handleBrandAction(req, res, body) {
 async function handleUserAction(req, res, body) {
   try {
     const db = await getDb();
-    const clientId = new ObjectId(body.clientId);
+    const clientIdValue = body.clientId || body.userId || body.id;
+    if (!ObjectId.isValid(String(clientIdValue || ''))) {
+      return res.status(400).json({ success: false, error: 'Valid clientId is required' });
+    }
+
+    const clientId = new ObjectId(clientIdValue);
     const status = String(body.status || '').toLowerCase();
+    const role = String(body.role || '').toLowerCase();
     const adminNote = String(body.adminNote || '').trim().slice(0, 500);
 
-    if (!['active', 'suspended', 'pending'].includes(status)) {
+    if (status && !['active', 'suspended', 'pending', 'blocked'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Invalid user status' });
     }
 
+    if (role && !['user', 'client', 'admin'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'Invalid user role' });
+    }
+
     const update = { updatedAt: new Date() };
-    if (status) update.accountStatus = status;
+    if (status) update.status = status;
+    if (role) update.role = role === 'user' ? 'client' : role;
     if (adminNote) update.adminNote = adminNote;
 
     const result = await db.collection('clients').findOneAndUpdate(
@@ -281,11 +356,12 @@ async function handleUserAction(req, res, body) {
       { returnDocument: 'after' }
     );
 
-    if (!result.value) {
+    const updatedClient = unwrapMongoResult(result);
+    if (!updatedClient) {
       return res.status(404).json({ success: false, error: 'Client not found' });
     }
 
-    return res.status(200).json({ success: true, client: result.value });
+    return res.status(200).json({ success: true, client: updatedClient });
   } catch (error) {
     console.error('User action error:', error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
@@ -315,23 +391,77 @@ async function handleMerchantVerificationAction(req, res, body) {
       return res.status(400).json({ success: false, error: 'Invalid verification status' });
     }
 
-    const update = { updatedAt: new Date() };
-    if (status) update.status = status;
+    const normalizedStatus = status === 'approved' ? 'manual_approved' : status;
+    const update = {
+      updatedAt: new Date(),
+      reviewedAt: new Date(),
+      reviewedBy: 'admin'
+    };
+    if (normalizedStatus) update.status = normalizedStatus;
     if (adminNote) update.adminNote = adminNote;
 
-    const result = await db.collection('merchant_verifications').findOneAndUpdate(
+    let verificationResult = null;
+    const current = await db.collection('merchant_verification_requests').findOne({ _id: verificationId });
+    if (!current) {
+      return res.status(404).json({ success: false, error: 'Verification not found' });
+    }
+
+    if (['manual_approved', 'verified'].includes(normalizedStatus)) {
+      const existingVerification = await db.collection('payment_verifications').findOne({
+        transaction_id: current.transaction_id
+      });
+
+      if (existingVerification) {
+        verificationResult = existingVerification;
+        update.verificationId = existingVerification._id;
+        update.verifiedAt = existingVerification.createdAt || new Date();
+      } else {
+        const verification = {
+          clientId: current.clientId,
+          websiteId: current.websiteId,
+          domain: current.domain || '',
+          paymentId: current.paymentId || null,
+          transaction_id: current.transaction_id,
+          amount: Number(current.amount || 0),
+          order_id: current.order_id || null,
+          sellerName: current.sellerName || '',
+          buyerName: current.buyerName || '',
+          buyerAddress: current.buyerAddress || '',
+          callbackUrl: current.callbackUrl || '',
+          returnUrl: current.returnUrl || '',
+          status: normalizedStatus,
+          adminNote,
+          createdAt: new Date()
+        };
+        const inserted = await db.collection('payment_verifications').insertOne(verification);
+        verification._id = inserted.insertedId;
+        verificationResult = verification;
+        update.verificationId = verification._id;
+        update.verifiedAt = verification.createdAt;
+      }
+    }
+
+    const result = await db.collection('merchant_verification_requests').findOneAndUpdate(
       { _id: verificationId },
       { $set: update },
       { returnDocument: 'after' }
     );
 
-    if (!result.value) {
+    const updatedVerification = unwrapMongoResult(result);
+    if (!updatedVerification) {
       return res.status(404).json({ success: false, error: 'Verification not found' });
     }
 
-    return res.status(200).json({ success: true, verification: result.value });
+    return res.status(200).json({ success: true, verification: updatedVerification, paymentVerification: verificationResult });
   } catch (error) {
     console.error('Merchant verification action error:', error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
   }
+}
+
+function statusToPaymentStatus(status) {
+  if (status === 'active') return 'paid';
+  if (status === 'rejected') return 'failed';
+  if (status === 'suspended') return 'unpaid';
+  return status || 'pending_review';
 }
