@@ -1,9 +1,10 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../_db.js';
 import { requireClient } from '../_auth.js';
-import { cleanString, publicServerError, serializeDevice } from '../_utils.js';
+import { cleanString, handleCors, publicServerError, serializeDevice } from '../_utils.js';
 
 export default async function handler(req, res) {
+  if (handleCors(req, res, 'GET, POST, OPTIONS')) return;
 
   const auth = await requireClient(req, res);
   if (!auth) return;

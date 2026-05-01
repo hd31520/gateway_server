@@ -2,9 +2,11 @@ import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireAdmin, signAdminToken } from './_auth.js';
 import { createAdminSession } from './_admin.js';
-import { publicServerError, safeRequestBody } from './_utils.js';
+import { handleCors, publicServerError, safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {
+  if (handleCors(req, res, 'GET, POST, PATCH, OPTIONS')) return;
+
   if (req.method === 'POST') {
     return handleAdminLogin(req, res);
   }

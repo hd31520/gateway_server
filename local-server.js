@@ -5,14 +5,14 @@ import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const root = path.dirname(__filename);
-const apiRoot = path.join(root, 'api');
+const handlersRoot = path.join(root, 'server', 'handlers');
 const publicRoot = path.join(root, 'public');
 const MAX_BODY_BYTES = 1_048_576;
 
 await loadEnvFile('.env', true);
 await loadEnvFile('.env.local', true);
 
-const { publicServerError } = await import('./api/_utils.js');
+const { publicServerError } = await import('./server/handlers/_utils.js');
 const port = Number(process.env.PORT || 3000);
 
 const server = http.createServer(async (req, res) => {
@@ -61,28 +61,42 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  const filePath = path.resolve(apiRoot, `${route}.js`);
-  if (!isInsideDirectory(apiRoot, filePath)) {
+  const filePath = path.resolve(handlersRoot, `${route}.js`);
+  const indexPath = path.resolve(handlersRoot, route, 'index.js');
+  if (!isInsideDirectory(handlersRoot, filePath)) {
     res.statusCode = 404;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ success: false, error: 'API route not found' }));
     return;
   }
 
+  let handlerFilePath = filePath;
   try {
-    await fs.access(filePath);
+    await fs.access(handlerFilePath);
   } catch (error) {
-    res.statusCode = 404;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ success: false, error: 'API route not found' }));
-    return;
+    if (!isInsideDirectory(handlersRoot, indexPath)) {
+      res.statusCode = 404;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ success: false, error: 'API route not found' }));
+      return;
+    }
+
+    try {
+      await fs.access(indexPath);
+      handlerFilePath = indexPath;
+    } catch (indexError) {
+      res.statusCode = 404;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ success: false, error: 'API route not found' }));
+      return;
+    }
   }
 
   req.query = Object.fromEntries(url.searchParams.entries());
   req.body = await readBody(req);
   attachResponseHelpers(res);
 
-  const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
+  const moduleUrl = `${pathToFileURL(handlerFilePath).href}?t=${Date.now()}`;
   const mod = await import(moduleUrl);
   await mod.default(req, res);
 }

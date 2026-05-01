@@ -10,6 +10,7 @@ import {
   BRAND_OPENING_FEE,
   MONTHLY_DOMAIN_FEE,
   addOneMonth,
+  handleCors,
   normalizeAmount,
   publicServerError,
   serializeWebsite
@@ -17,6 +18,8 @@ import {
 import { safeRequestBody } from '../_utils.js';
 
 export default async function handler(req, res) {
+  if (handleCors(req, res, 'POST, OPTIONS')) return;
+
   const auth = await requireClient(req, res);
   if (!auth) return;
 

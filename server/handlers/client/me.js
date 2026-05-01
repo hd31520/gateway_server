@@ -93,6 +93,8 @@ const docs = [
 ];
 
 export default async function handler(req, res) {
+  if (handleCors(req, res, 'GET, POST, PATCH, OPTIONS')) return;
+
   const auth = await requireClient(req, res);
   if (!auth) return;
 

@@ -225,7 +225,7 @@ function unusedPaymentFilter() {
   };
 }
 
-function toObjectId(value) {
+export function toObjectId(value) {
   if (!value) return null;
   if (value instanceof ObjectId) return value;
   const text = String(value);

@@ -1,6 +1,4 @@
-import path from 'path';
-
-function setCorsMidware(req, res) {
+function setCorsMiddleware(req, res) {
   // Get origin from request
   const origin = req.headers.origin || '*';
   
@@ -40,7 +38,7 @@ function safeRouteFromSlug(slugArray) {
 export default async function handler(req, res) {
   try {
     // Handle CORS first
-    if (setCorsMidware(req, res)) {
+    if (setCorsMiddleware(req, res)) {
       return;
     }
 
@@ -50,16 +48,16 @@ export default async function handler(req, res) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    // Map route to handler in ../server/handlers
-    const handlerPath = `../../server/handlers/${route}.js`;
+    // Map route to handler in ../server/handlers.
+    const handlerPath = new URL(`../server/handlers/${route}.js`, import.meta.url);
     let mod;
     try {
-      mod = await import(handlerPath);
+      mod = await import(handlerPath.href);
     } catch (e) {
       // Try with index.js inside a folder
       try {
-        const idxPath = `../../server/handlers/${route}/index.js`;
-        mod = await import(idxPath);
+        const idxPath = new URL(`../server/handlers/${route}/index.js`, import.meta.url);
+        mod = await import(idxPath.href);
       } catch (e2) {
         return res.status(404).json({ success: false, error: 'Handler not found' });
       }
