@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { getDb } from '../_db.js';
 import { signClientToken } from '../_auth.js';
+import { getAdminConfig } from '../_admin.js';
 import { cleanString, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient, safeRequestBody } from '../_utils.js';
 
 const MIN_PASSWORD_LENGTH = 10;
@@ -21,6 +22,11 @@ export default async function handler(req, res) {
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ success: false, error: 'Valid email is required' });
+    }
+
+    const adminEmail = getAdminConfig().email;
+    if (adminEmail && email === adminEmail) {
+      return res.status(409).json({ success: false, error: 'Use the existing admin login for this email' });
     }
 
     if (password.length < MIN_PASSWORD_LENGTH) {

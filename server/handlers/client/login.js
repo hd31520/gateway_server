@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { getDb } from '../_db.js';
 import { signClientToken } from '../_auth.js';
-import { normalizeEmail, publicServerError, rateLimit, serializeClient } from '../_utils.js';
+import { createAdminSession, getAdminConfig } from '../_admin.js';
+import { cleanString, normalizeEmail, publicServerError, rateLimit, safeRequestBody, serializeClient } from '../_utils.js';
 
 export default async function handler(req, res) {
 
@@ -12,20 +13,56 @@ export default async function handler(req, res) {
   if (!rateLimit(req, res, { key: 'client-login', limit: 12, windowMs: 15 * 60_000 })) return;
 
   try {
-    let body = {};
-    try {
-      body = req.body || {};
-    } catch (err) {
-      console.error('Invalid JSON in request body', err);
-      return res.status(400).json({ success: false, error: 'Invalid JSON in request body' });
-    }
+    const body = safeRequestBody(req, res);
+    if (body === null) return;
 
     const email = normalizeEmail(body.email);
     const password = String(body.password || '');
 
+    const adminSession = await createAdminSession({ email, password });
+    if (adminSession.ok) {
+      const db = await getDb();
+      const now = new Date();
+      const adminClient = {
+        name: cleanString(process.env.ADMIN_NAME || 'Administrator', 120),
+        email: adminSession.admin.email,
+        role: 'admin',
+        status: 'active',
+        updatedAt: now,
+        createdAt: now
+      };
+
+      const storedAdmin = await db.collection('clients').findOneAndUpdate(
+        { email: adminClient.email },
+        {
+          $set: {
+            name: adminClient.name,
+            role: 'admin',
+            status: 'active',
+            updatedAt: now
+          },
+          $setOnInsert: {
+            email: adminClient.email,
+            createdAt: now
+          }
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+
+      const client = storedAdmin.value || adminClient;
+      const token = signClientToken(client);
+      return res.status(200).json({
+        success: true,
+        token,
+        client: serializeClient(client),
+        admin: serializeClient(client),
+        config: getAdminConfig()
+      });
+    }
+
     const db = await getDb();
     const client = await db.collection('clients').findOne({ email });
-    const ok = client ? await bcrypt.compare(password, client.passwordHash) : false;
+    const ok = client && client.passwordHash ? await bcrypt.compare(password, client.passwordHash) : false;
 
     if (!ok || client.status === 'blocked') {
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
