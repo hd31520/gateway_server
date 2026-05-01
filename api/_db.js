@@ -91,6 +91,9 @@ async function ensureIndexes(db) {
   await db.collection('billing_requests').createIndex({ websiteId: 1, createdAt: -1 });
   await db.collection('billing_requests').createIndex({ status: 1, createdAt: -1 });
   await db.collection('billing_requests').createIndex({ transaction_id: 1 }, { unique: true, sparse: true });
+  await db.collection('revoked_tokens').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+  await db.collection('revoked_tokens').createIndex({ tokenHash: 1 }, { unique: true });
+  await db.collection('revoked_tokens').createIndex({ jti: 1 }, { unique: true, sparse: true });
   indexesEnsured = true;
 }
 

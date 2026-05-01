@@ -6,7 +6,7 @@ import { escapeRegex, handleCors, publicServerError, serializePayment } from './
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, PATCH, OPTIONS')) return;
 
-  const admin = requireAdmin(req, res);
+  const admin = await requireAdmin(req, res);
   if (!admin) return;
 
   try {

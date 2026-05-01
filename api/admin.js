@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     return loginAdmin(req, res);
   }
 
-  const admin = requireAdmin(req, res);
+  const admin = await requireAdmin(req, res);
   if (!admin) return;
 
   try {

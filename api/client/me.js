@@ -63,6 +63,13 @@ const docs = [
     body: []
   },
   {
+    title: 'Client logout',
+    method: 'POST',
+    path: '/api/client/logout',
+    auth: 'Bearer client_token',
+    body: []
+  },
+  {
     title: 'Create brand',
     method: 'POST',
     path: '/api/client/websites',
@@ -81,7 +88,7 @@ const docs = [
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, POST, PUT, PATCH, OPTIONS')) return;
 
-  const auth = requireClient(req, res);
+  const auth = await requireClient(req, res);
   if (!auth) return;
 
   try {

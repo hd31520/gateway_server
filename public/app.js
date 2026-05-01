@@ -103,13 +103,23 @@ $('#clientRegisterForm').addEventListener('submit', async (event) => {
   await showClientDashboard();
 });
 
-$('#adminLogoutBtn').addEventListener('click', () => {
+$('#adminLogoutBtn').addEventListener('click', async () => {
+  try {
+    if (adminToken) await fetchJson('/api/logout', {}, adminToken);
+  } catch (error) {
+    // Local logout should still complete if the network request fails.
+  }
   localStorage.removeItem('adminToken');
   adminToken = '';
   showAuth();
 });
 
-$('#clientLogoutBtn').addEventListener('click', () => {
+$('#clientLogoutBtn').addEventListener('click', async () => {
+  try {
+    if (clientToken) await fetchJson('/api/client/logout', {}, clientToken);
+  } catch (error) {
+    // Local logout should still complete if the network request fails.
+  }
   localStorage.removeItem('clientToken');
   clientToken = '';
   clientWebsites = [];

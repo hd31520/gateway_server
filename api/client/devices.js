@@ -6,7 +6,7 @@ import { cleanString, handleCors, publicServerError, serializeDevice } from '../
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, POST, OPTIONS')) return;
 
-  const auth = requireClient(req, res);
+  const auth = await requireClient(req, res);
   if (!auth) return;
 
   try {

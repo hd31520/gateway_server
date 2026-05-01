@@ -70,6 +70,15 @@ Body:
 
 Duplicate `transaction_id` values are blocked.
 
+Client sessions can be ended with:
+
+```text
+POST /api/client/logout
+Authorization: Bearer CLIENT_LOGIN_TOKEN
+```
+
+Logout revokes the current login token on the server and the app clears its local session.
+
 ## Admin dashboard
 
 Open `/`, choose Admin, and login with `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
@@ -174,6 +183,7 @@ https://YOUR-VERCEL-PROJECT.vercel.app/api/merchant/verify
 ## Security notes
 
 - Do not publish `ANDROID_API_TOKEN`, `JWT_SECRET`, or website API keys publicly.
+- The Android app does not show the gateway API URL in its UI, and it should never embed `ANDROID_API_TOKEN`; users login with client tokens instead.
 - Use a long random `JWT_SECRET`.
 - Prefer `ADMIN_PASSWORD_HASH` over a plain `ADMIN_PASSWORD`.
 - Do not commit real `.env` values or MongoDB credentials.

@@ -13,8 +13,16 @@ export default async function handler(req, res) {
   if (!rateLimit(req, res, { key: 'client-login', limit: 12, windowMs: 15 * 60_000 })) return;
 
   try {
-    const email = normalizeEmail(req.body?.email);
-    const password = String(req.body?.password || '');
+    let body = {};
+    try {
+      body = req.body || {};
+    } catch (err) {
+      console.error('Invalid JSON in request body', err);
+      return res.status(400).json({ success: false, error: 'Invalid JSON in request body' });
+    }
+
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || '');
 
     const db = await getDb();
     const client = await db.collection('clients').findOne({ email });

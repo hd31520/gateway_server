@@ -21,7 +21,7 @@ function unwrapMongoResult(result) {
 export default async function handler(req, res) {
   if (handleCors(req, res, 'POST, OPTIONS')) return;
 
-  const auth = requireClient(req, res);
+  const auth = await requireClient(req, res);
   if (!auth) return;
 
   if (req.method !== 'POST') {

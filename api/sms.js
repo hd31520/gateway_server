@@ -35,7 +35,7 @@ export default async function handler(req, res) {
 
   if (!rateLimit(req, res, { key: 'sms-submit', limit: 180, windowMs: 60_000 })) return;
 
-  const submitter = requireSmsSubmitter(req, res);
+  const submitter = await requireSmsSubmitter(req, res);
   if (!submitter) return;
 
   try {
