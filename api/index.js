@@ -1,8 +1,6 @@
 function setCorsMiddleware(req, res) {
-  // Get origin from request
   const origin = req.headers.origin || '*';
-  
-  // Set CORS headers
+
   const corsHeaders = {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, PUT, OPTIONS',
@@ -11,25 +9,23 @@ function setCorsMiddleware(req, res) {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY'
   };
-  
-  // Apply headers
+
   Object.entries(corsHeaders).forEach(([key, value]) => {
     res.setHeader(key, value);
   });
-  
-  // Handle preflight
+
   if (req.method === 'OPTIONS') {
     res.writeHead(204, corsHeaders);
     res.end();
     return true;
   }
-  
+
   return false;
 }
 
-function safeRouteFromSlug(slugArray) {
-  if (!Array.isArray(slugArray)) return null;
-  const parts = slugArray.map(String).filter(Boolean).map((p) => p.replace(/[^a-zA-Z0-9_-]/g, ''));
+function safeRouteFromSlug(slug) {
+  const raw = Array.isArray(slug) ? slug.join('/') : String(slug || '');
+  const parts = raw.split('/').map(String).filter(Boolean).map((part) => part.replace(/[^a-zA-Z0-9_-]/g, ''));
   if (parts.length === 0) return null;
   if (parts.join('/').length > 200) return null;
   return parts.join('/');
@@ -37,28 +33,22 @@ function safeRouteFromSlug(slugArray) {
 
 export default async function handler(req, res) {
   try {
-    // Handle CORS first
-    if (setCorsMiddleware(req, res)) {
-      return;
-    }
+    if (setCorsMiddleware(req, res)) return;
 
-    const slug = req.query && req.query.slug ? req.query.slug : [];
-    const route = safeRouteFromSlug(Array.isArray(slug) ? slug : [slug]);
+    const route = safeRouteFromSlug(req.query?.slug);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    // Map route to handler in ../server/handlers.
-    const handlerPath = new URL(`../server/handlers/${route}.js`, import.meta.url);
     let mod;
     try {
+      const handlerPath = new URL(`../server/handlers/${route}.js`, import.meta.url);
       mod = await import(handlerPath.href);
-    } catch (e) {
-      // Try with index.js inside a folder
+    } catch (error) {
       try {
-        const idxPath = new URL(`../server/handlers/${route}/index.js`, import.meta.url);
-        mod = await import(idxPath.href);
-      } catch (e2) {
+        const indexPath = new URL(`../server/handlers/${route}/index.js`, import.meta.url);
+        mod = await import(indexPath.href);
+      } catch (indexError) {
         return res.status(404).json({ success: false, error: 'Handler not found' });
       }
     }
@@ -70,7 +60,7 @@ export default async function handler(req, res) {
 
     return await fn(req, res);
   } catch (error) {
-    console.error('Catch-all router error', error);
+    console.error('API router error', error);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 }
