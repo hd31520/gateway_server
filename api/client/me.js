@@ -19,6 +19,7 @@ import {
   serializeClient,
   serializeBillingRequest,
   serializeDevice,
+  serializeMerchantVerification,
   serializePayment,
   serializeRenewal,
   serializeSettings,
@@ -26,6 +27,7 @@ import {
   serializeVerification,
   serializeWebsite
 } from '../_utils.js';
+import { safeRequestBody } from '../_utils.js';
 
 const plans = [
   { id: 'free-3', name: 'Free Plan', duration: '3 Days', price: 0, websites: 1 },
@@ -98,6 +100,8 @@ export default async function handler(req, res) {
 
   try {
     const db = await getDb();
+    const body = safeRequestBody(req, res);
+    if (body === null) return;
     const clientId = new ObjectId(auth.id);
     const resource = String(req.query?.resource || '').trim().toLowerCase();
 
@@ -132,6 +136,7 @@ async function sendDashboard(res, db, clientId) {
     websites,
     recentPayments,
     recentVerifications,
+    merchantVerificationRequests,
     renewals,
     devices,
     settings,
@@ -143,12 +148,15 @@ async function sendDashboard(res, db, clientId) {
     pendingAmount,
     completedCount,
     completedAmount,
-    completedTodayAmount
+    completedTodayAmount,
+    pendingMerchantCount,
+    pendingMerchantAmount
   ] = await Promise.all([
     db.collection('clients').findOne({ _id: clientId }),
     db.collection('websites').find({ clientId }).sort({ createdAt: -1 }).toArray(),
     db.collection('payments').find(paymentFilter).sort({ createdAt: -1 }).limit(25).toArray(),
     db.collection('payment_verifications').find({ clientId }).sort({ createdAt: -1 }).limit(25).toArray(),
+    db.collection('merchant_verification_requests').find({ clientId }).sort({ createdAt: -1 }).limit(50).toArray(),
     db.collection('subscription_renewals').find({ clientId }).sort({ paidAt: -1 }).limit(25).toArray(),
     db.collection('client_devices').find({ clientId }).sort({ lastSeenAt: -1 }).limit(20).toArray(),
     db.collection('client_settings').findOne({ clientId }),
@@ -160,7 +168,9 @@ async function sendDashboard(res, db, clientId) {
     sumCollection(db, 'payments', { ...paymentFilter, status: 'received' }, 'amount'),
     db.collection('payment_verifications').countDocuments({ clientId }),
     sumCollection(db, 'payment_verifications', { clientId }, 'amount'),
-    sumCollection(db, 'payment_verifications', { clientId, createdAt: { $gte: todayStart } }, 'amount')
+    sumCollection(db, 'payment_verifications', { clientId, createdAt: { $gte: todayStart } }, 'amount'),
+    db.collection('merchant_verification_requests').countDocuments({ clientId, status: 'pending_sms' }),
+    sumCollection(db, 'merchant_verification_requests', { clientId, status: 'pending_sms' }, 'amount')
   ]);
 
   if (!client) {
@@ -173,6 +183,7 @@ async function sendDashboard(res, db, clientId) {
   const pendingBrands = websites.filter((website) => !isWebsiteActive(website) && (!website.brandStatus || ['pending_payment', 'pending_review'].includes(website.brandStatus))).length;
   const dueWebsites = Math.max(websites.length - activeWebsites, 0);
   const openTickets = tickets.filter((ticket) => ticket.status !== 'closed').length;
+  const merchantHistory = mergeMerchantHistory(recentVerifications, merchantVerificationRequests);
 
   return res.status(200).json({
     success: true,
@@ -180,7 +191,8 @@ async function sendDashboard(res, db, clientId) {
     client: serializeClient(client),
     websites: websites.map((website) => serializeWebsite(website)),
     payments: recentPayments.map(serializePayment),
-    transactions: recentVerifications.map(serializeVerification),
+    transactions: merchantHistory,
+    merchantHistory,
     renewals: renewals.map(serializeRenewal),
     devices: devices.map(serializeDevice),
     settings: serializeSettings(settings),
@@ -200,6 +212,8 @@ async function sendDashboard(res, db, clientId) {
       totalReceivedAmount: paymentAmount,
       pendingTransactions: pendingCount,
       pendingAmount,
+      pendingMerchantVerifications: pendingMerchantCount,
+      pendingMerchantAmount,
       completedTransactions: completedCount,
       completedAmount,
       completedTodayAmount,
@@ -441,6 +455,47 @@ async function sumCollection(db, collection, filter, field) {
     { $group: { _id: null, total: { $sum: `$${field}` } } }
   ]).toArray();
   return Number(rows[0]?.total || 0);
+}
+
+function mergeMerchantHistory(verifications = [], requests = []) {
+  const byTransaction = new Map();
+
+  for (const request of requests) {
+    const serialized = {
+      ...serializeMerchantVerification(request),
+      source: 'merchant_request'
+    };
+    byTransaction.set(serialized.transaction_id, serialized);
+  }
+
+  for (const verification of verifications) {
+    const serialized = {
+      ...serializeVerification(verification),
+      verificationId: String(verification._id),
+      paymentId: verification.paymentId ? String(verification.paymentId) : null,
+      verifiedAt: verification.createdAt,
+      source: 'payment_verification'
+    };
+    const existing = byTransaction.get(serialized.transaction_id);
+    byTransaction.set(serialized.transaction_id, {
+      ...(existing || {}),
+      ...serialized,
+      id: existing?.id || serialized.id,
+      status: existing?.status && existing.status !== 'pending_sms'
+        ? existing.status
+        : serialized.status
+    });
+  }
+
+  return [...byTransaction.values()]
+    .sort((left, right) => newestTimestamp(right) - newestTimestamp(left))
+    .slice(0, 50);
+}
+
+function newestTimestamp(item) {
+  const value = item?.verifiedAt || item?.updatedAt || item?.createdAt;
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
 }
 
 function buildInvoices(websites) {

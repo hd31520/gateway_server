@@ -86,6 +86,10 @@ async function ensureIndexes(db) {
   await db.collection('payment_verifications').createIndex({ transaction_id: 1 }, { unique: true });
   await db.collection('payment_verifications').createIndex({ websiteId: 1, createdAt: -1 });
   await db.collection('payment_verifications').createIndex({ clientId: 1, createdAt: -1 });
+  await db.collection('merchant_verification_requests').createIndex({ transaction_id: 1 }, { unique: true, sparse: true });
+  await db.collection('merchant_verification_requests').createIndex({ status: 1, createdAt: -1 });
+  await db.collection('merchant_verification_requests').createIndex({ websiteId: 1, status: 1, createdAt: -1 });
+  await db.collection('merchant_verification_requests').createIndex({ clientId: 1, status: 1, createdAt: -1 });
   await db.collection('client_devices').createIndex({ clientId: 1, lastSeenAt: -1 });
   await db.collection('client_devices').createIndex({ clientId: 1, deviceId: 1 }, { unique: true });
   await db.collection('client_settings').createIndex({ clientId: 1 }, { unique: true });

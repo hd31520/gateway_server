@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireAdmin } from './_auth.js';
-import { escapeRegex, handleCors, publicServerError, serializePayment } from './_utils.js';
+import { escapeRegex, handleCors, publicServerError, serializePayment, safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, PATCH, OPTIONS')) return;
@@ -50,7 +50,9 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PATCH') {
-      const { id, status } = req.body || {};
+      const body = safeRequestBody(req, res);
+      if (body === null) return;
+      const { id, status } = body || {};
       const allowed = ['received', 'verified', 'rejected'];
       if (!ObjectId.isValid(id) || !allowed.includes(status)) {
         return res.status(400).json({ success: false, error: 'Valid id and status are required' });

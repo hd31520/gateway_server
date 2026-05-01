@@ -1,5 +1,11 @@
 import { getDb } from '../_db.js';
 import {
+  findConflictingPendingMerchantVerification,
+  ownerPaymentFilter,
+  upsertPendingMerchantVerification,
+  unwrapMongoResult
+} from '../_merchant_verification.js';
+import {
   cleanString,
   isWebsiteActive,
   normalizeAmount,
@@ -9,21 +15,12 @@ import {
   rateLimit,
   setSecurityHeaders
 } from '../_utils.js';
+import { safeRequestBody } from '../_utils.js';
 
 function readApiKey(req) {
   const auth = req.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
   return String(req.headers['x-api-key'] || '').trim();
-}
-
-function unwrapMongoResult(result) {
-  if (!result) return null;
-  if (Object.prototype.hasOwnProperty.call(result, 'value')) return result.value;
-  return result;
-}
-
-function ownerPaymentFilter(clientId) {
-  return { $or: [{ submittedByClientId: clientId }, { clientId }] };
 }
 
 export default async function handler(req, res) {
@@ -36,7 +33,8 @@ export default async function handler(req, res) {
   if (!rateLimit(req, res, { key: 'merchant-verify-ip', limit: 90, windowMs: 60_000 })) return;
 
   try {
-    const body = req.body || {};
+    const body = safeRequestBody(req, res);
+    if (body === null) return;
     const apiKey = readApiKey(req);
     const transactionId = cleanString(body.transaction_id, 120).toUpperCase();
     const amount = normalizeAmount(body.amount);
@@ -97,6 +95,11 @@ export default async function handler(req, res) {
       return res.status(409).json({ success: false, error: 'This transaction ID is already used' });
     }
 
+    const conflictingPending = await findConflictingPendingMerchantVerification(db, website, transactionId, amount);
+    if (conflictingPending) {
+      return res.status(409).json({ success: false, error: 'This transaction ID is already waiting for another verification' });
+    }
+
     const now = new Date();
     if (manualAccept) {
       const verification = {
@@ -118,6 +121,34 @@ export default async function handler(req, res) {
 
       const result = await db.collection('payment_verifications').insertOne(verification);
       verification._id = result.insertedId;
+      await db.collection('merchant_verification_requests').updateOne(
+        { transaction_id: transactionId },
+        {
+          $set: {
+            clientId: website.clientId,
+            websiteId: website._id,
+            domain: website.domain,
+            paymentId: null,
+            verificationId: verification._id,
+            transaction_id: transactionId,
+            amount,
+            order_id: orderId || null,
+            sellerName,
+            buyerName,
+            buyerAddress,
+            callbackUrl,
+            returnUrl,
+            status: 'manual_accepted',
+            verifiedAt: now,
+            updatedAt: now
+          },
+          $setOnInsert: {
+            createdAt: now,
+            firstSubmittedAt: now
+          }
+        },
+        { upsert: true }
+      );
 
       return res.status(200).json({
         success: true,
@@ -157,10 +188,32 @@ export default async function handler(req, res) {
     const payment = unwrapMongoResult(paymentResult);
 
     if (!payment) {
-      return res.status(404).json({
-        success: false,
-        error: 'No unused payment found in this account with this transaction ID and amount',
-        redirectUrl: buildReturnUrl(returnUrl, 'failed', transactionId, orderId)
+      const pendingVerification = await upsertPendingMerchantVerification({
+        db,
+        website,
+        transactionId,
+        amount,
+        orderId,
+        sellerName,
+        buyerName,
+        buyerAddress,
+        callbackUrl,
+        returnUrl,
+        now
+      });
+
+      return res.status(202).json({
+        success: true,
+        status: 'pending_sms',
+        message: 'Payment verification is pending until the matching Android SMS record arrives',
+        redirectUrl: buildReturnUrl(returnUrl, 'pending', transactionId, orderId),
+        pendingVerification: {
+          id: pendingVerification?._id ? String(pendingVerification._id) : null,
+          transaction_id: transactionId,
+          amount,
+          order_id: orderId || null,
+          status: 'pending_sms'
+        }
       });
     }
 
@@ -183,6 +236,34 @@ export default async function handler(req, res) {
 
     const result = await db.collection('payment_verifications').insertOne(verification);
     verification._id = result.insertedId;
+    await db.collection('merchant_verification_requests').updateOne(
+      { transaction_id: transactionId },
+      {
+        $set: {
+          clientId: website.clientId,
+          websiteId: website._id,
+          domain: website.domain,
+          status: 'verified',
+          paymentId: payment._id,
+          verificationId: verification._id,
+          transaction_id: transactionId,
+          amount,
+          order_id: orderId || null,
+          sellerName,
+          buyerName,
+          buyerAddress,
+          callbackUrl,
+          returnUrl,
+          verifiedAt: now,
+          updatedAt: now
+        },
+        $setOnInsert: {
+          createdAt: now,
+          firstSubmittedAt: now
+        }
+      },
+      { upsert: true }
+    );
 
     return res.status(200).json({
       success: true,

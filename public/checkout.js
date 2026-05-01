@@ -132,7 +132,7 @@ async function verifyPayment() {
       return;
     }
 
-    setPaymentState(data.status === 'already_verified' ? 'Payment already verified.' : 'Payment verified.', true);
+    setPaymentState(paymentVerificationMessage(data), data.status === 'pending_sms' ? null : true);
     if (data.redirectUrl) {
       fields.paymentMessage.textContent += ` Return URL: ${data.redirectUrl}`;
     }
@@ -145,7 +145,14 @@ async function verifyPayment() {
 function setPaymentState(message, success) {
   fields.paymentMessage.textContent = message;
   fields.paymentMessage.className = success ? 'notice success-text' : success === false ? 'notice error-text' : 'notice';
-  fields.summaryStatus.textContent = success ? 'Verified' : success === false ? 'Failed' : 'Checking';
+  fields.summaryStatus.textContent = success ? 'Verified' : success === false ? 'Failed' : 'Pending';
+}
+
+function paymentVerificationMessage(data) {
+  if (data.status === 'pending_sms') return data.message || 'Payment saved. Waiting for matching Android SMS.';
+  if (data.status === 'already_verified') return 'Payment already verified.';
+  if (data.status === 'manual_accepted') return 'Payment manually accepted.';
+  return 'Payment verified.';
 }
 
 function writeResponse(payload) {

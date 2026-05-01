@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { getDb } from '../_db.js';
 import { signClientToken } from '../_auth.js';
-import { cleanString, handleCors, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient } from '../_utils.js';
+import { cleanString, handleCors, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient, safeRequestBody } from '../_utils.js';
 
 const MIN_PASSWORD_LENGTH = 10;
 
@@ -15,7 +15,8 @@ export default async function handler(req, res) {
   if (!rateLimit(req, res, { key: 'client-register', limit: 8, windowMs: 15 * 60_000 })) return;
 
   try {
-    const body = req.body || {};
+    const body = safeRequestBody(req, res);
+    if (body === null) return;
     const email = normalizeEmail(body.email);
     const password = String(body.password || '');
     const name = cleanString(body.name, 120) || email.split('@')[0];

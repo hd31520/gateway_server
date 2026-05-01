@@ -5,6 +5,7 @@ import {
   activateWebsiteFromAdminPayment,
   upsertBillingRequest
 } from './_billing.js';
+import { autoApprovePendingMerchantVerification } from './_merchant_verification.js';
 import {
   BRAND_OPENING_FEE,
   cleanString,
@@ -12,7 +13,8 @@ import {
   normalizeAmount,
   publicServerError,
   rateLimit,
-  serializePayment
+  serializePayment,
+  safeRequestBody
 } from './_utils.js';
 
 function firstValue(...values) {
@@ -55,7 +57,8 @@ export default async function handler(req, res) {
   if (!submitter) return;
 
   try {
-    const body = req.body || {};
+    const body = safeRequestBody(req, res);
+    if (body === null) return;
     const transactionId = cleanString(
       firstValue(body.transaction_id, body.transactionId, body.transactionNumber, body.trxId, body.txnId),
       120
@@ -84,12 +87,17 @@ export default async function handler(req, res) {
         const freshPayment = autoApproval
           ? await db.collection('payments').findOne({ _id: existing._id })
           : existing;
+        const merchantAutoVerification = await autoApprovePendingMerchantVerification(db, freshPayment || existing, now);
+        const latestPayment = merchantAutoVerification
+          ? await db.collection('payments').findOne({ _id: existing._id })
+          : freshPayment;
         return res.status(200).json({
           success: true,
           duplicate: true,
           message: 'Payment already saved',
           autoApproval,
-          payment: serializePayment(freshPayment || existing)
+          merchantAutoVerification,
+          payment: serializePayment(latestPayment || freshPayment || existing)
         });
       }
 
@@ -135,12 +143,21 @@ export default async function handler(req, res) {
     const savedPayment = autoApproval
       ? await db.collection('payments').findOne({ transaction_id: transactionId })
       : payment;
+    const merchantAutoVerification = await autoApprovePendingMerchantVerification(db, savedPayment || payment, now);
+    const latestPayment = merchantAutoVerification
+      ? await db.collection('payments').findOne({ transaction_id: transactionId })
+      : savedPayment;
 
     return res.status(201).json({
       success: true,
-      message: autoApproval ? 'Payment saved and pending brand activated' : 'Payment saved',
+      message: merchantAutoVerification
+        ? 'Payment saved and pending merchant verification approved'
+        : autoApproval
+          ? 'Payment saved and pending brand activated'
+          : 'Payment saved',
       autoApproval,
-      payment: serializePayment(savedPayment || payment)
+      merchantAutoVerification,
+      payment: serializePayment(latestPayment || savedPayment || payment)
     });
   } catch (error) {
     if (error && error.code === 11000) {
@@ -210,7 +227,9 @@ async function autoApprovePendingAdminPayment(db, payment, now) {
 }
 
 function isAdminPayment(payment) {
-  return payment?.submittedBy === 'admin' || Boolean(payment?.submittedByAdmin);
+  return payment?.submittedBy === 'admin'
+    || payment?.submittedBy === 'android'
+    || Boolean(payment?.submittedByAdmin);
 }
 
 async function upsertClientDevice(db, submitter, body, now, countSms) {

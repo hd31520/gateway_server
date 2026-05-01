@@ -180,6 +180,20 @@ export function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export function safeRequestBody(req, res) {
+  try {
+    return req.body || {};
+  } catch (err) {
+    console.error('Invalid JSON in request body', err);
+    try {
+      res.status(400).json({ success: false, error: 'Invalid JSON in request body' });
+    } catch (e) {
+      // ignore secondary errors
+    }
+    return null;
+  }
+}
+
 export function serializeClient(client) {
   if (!client) return null;
   return {
@@ -256,6 +270,33 @@ export function serializeVerification(verification) {
     returnUrl: verification.returnUrl || '',
     status: verification.status || 'verified',
     createdAt: verification.createdAt
+  };
+}
+
+export function serializeMerchantVerification(item) {
+  if (!item) return null;
+  return {
+    id: String(item._id),
+    clientId: item.clientId ? String(item.clientId) : null,
+    websiteId: item.websiteId ? String(item.websiteId) : null,
+    paymentId: item.paymentId ? String(item.paymentId) : null,
+    verificationId: item.verificationId ? String(item.verificationId) : null,
+    domain: item.domain || '',
+    transaction_id: item.transaction_id || '',
+    amount: Number(item.amount || 0),
+    order_id: item.order_id || null,
+    sellerName: item.sellerName || '',
+    buyerName: item.buyerName || '',
+    buyerAddress: item.buyerAddress || '',
+    callbackUrl: item.callbackUrl || '',
+    returnUrl: item.returnUrl || '',
+    status: item.status || 'pending_sms',
+    adminNote: item.adminNote || '',
+    reviewedBy: item.reviewedBy || '',
+    reviewedAt: item.reviewedAt || null,
+    verifiedAt: item.verifiedAt || item.createdAt || null,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt || null
   };
 }
 

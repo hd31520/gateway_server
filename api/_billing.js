@@ -22,6 +22,7 @@ export function adminPaymentRecordFilter() {
   return {
     $or: [
       { submittedBy: 'admin' },
+      { submittedBy: 'android', submittedByClientId: { $exists: false }, clientId: { $exists: false } },
       { submittedByAdmin: { $exists: true, $ne: '' } }
     ]
   };

@@ -15,6 +15,7 @@ import {
   publicServerError,
   serializeWebsite
 } from '../_utils.js';
+import { safeRequestBody } from '../_utils.js';
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'POST, OPTIONS')) return;
@@ -27,10 +28,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const websiteId = String(req.body?.websiteId || '');
-    const transactionId = normalizeTransactionId(req.body?.transaction_id || req.body?.transactionId);
+    const body = safeRequestBody(req, res);
+    if (body === null) return;
+
+    const websiteId = String(body.websiteId || '');
+    const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId);
     const fee = BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE;
-    const submittedAmount = normalizeAmount(req.body?.amount || fee);
+    const submittedAmount = normalizeAmount(body.amount || fee);
 
     if (!ObjectId.isValid(websiteId) || !transactionId) {
       return res.status(400).json({ success: false, error: 'websiteId and transaction_id are required' });

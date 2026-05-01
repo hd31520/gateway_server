@@ -3,6 +3,7 @@ import { getDb } from './_db.js';
 import { requireAdmin } from './_auth.js';
 import { createAdminSession, getAdminConfig } from './_admin.js';
 import { adminPaymentRecordFilter } from './_billing.js';
+import { manuallyUpdateMerchantVerification } from './_merchant_verification.js';
 import {
   BRAND_OPENING_FEE,
   addOneMonth,
@@ -14,15 +15,20 @@ import {
   serializeBillingRequest,
   serializeClient,
   serializeDevice,
+  serializeMerchantVerification,
   serializePayment,
   serializeTicket,
   serializeWebsite
 } from './_utils.js';
+import { safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, POST, PATCH, OPTIONS')) return;
 
-  const action = cleanString(req.query?.action || req.body?.action, 60).toLowerCase();
+  const body = safeRequestBody(req, res);
+  if (body === null) return;
+
+  const action = cleanString(req.query?.action || body.action, 60).toLowerCase();
 
   if ((action === 'login' || (!action && req.method === 'POST' && req.body?.password)) && req.method === 'POST') {
     return loginAdmin(req, res);
@@ -55,6 +61,10 @@ export default async function handler(req, res) {
         return listHistory(req, res, db);
       }
 
+      if (action === 'merchantverification' || action === 'merchant-verifications') {
+        return listMerchantVerifications(req, res, db);
+      }
+
       if (action === 'payments' || action === 'sms') {
         return listPayments(req, res, db);
       }
@@ -64,6 +74,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'PATCH' || (req.method === 'POST' && action === 'brand')) {
       if (action === 'user') return updateUser(req, res, db);
+      if (action === 'merchantverification') return updateMerchantVerification(req, res, db, admin);
       return updateBrand(req, res, db, admin);
     }
 
@@ -77,7 +88,10 @@ export default async function handler(req, res) {
 async function loginAdmin(req, res) {
   if (!rateLimit(req, res, { key: 'admin-login', limit: 8, windowMs: 15 * 60_000 })) return;
 
-  const session = await createAdminSession(req.body || {});
+  const body = safeRequestBody(req, res);
+  if (body === null) return;
+
+  const session = await createAdminSession(body);
   if (!session.ok) {
     return res.status(session.status).json({ success: false, error: session.error });
   }
@@ -91,18 +105,20 @@ async function loginAdmin(req, res) {
 }
 
 async function adminDashboard(res, db) {
-  const [clients, websites, payments, devices, tickets, billingRequests, totalClients, totalBrands, pendingBrands, activeBrands, pendingBilling, paymentSummary, accountHistory] = await Promise.all([
+  const [clients, websites, payments, devices, tickets, billingRequests, merchantRequests, totalClients, totalBrands, pendingBrands, activeBrands, pendingBilling, pendingMerchantVerifications, paymentSummary, accountHistory] = await Promise.all([
     db.collection('clients').find({}).sort({ createdAt: -1 }).limit(20).toArray(),
     db.collection('websites').find({}).sort({ createdAt: -1 }).limit(30).toArray(),
     db.collection('payments').find({}).sort({ createdAt: -1 }).limit(30).toArray(),
     db.collection('client_devices').find({}).sort({ lastSeenAt: -1 }).limit(20).toArray(),
     db.collection('support_tickets').find({}).sort({ createdAt: -1 }).limit(20).toArray(),
     db.collection('billing_requests').find({}).sort({ createdAt: -1 }).limit(30).toArray(),
+    db.collection('merchant_verification_requests').find({}).sort({ createdAt: -1 }).limit(50).toArray(),
     db.collection('clients').countDocuments({}),
     db.collection('websites').countDocuments({}),
     db.collection('websites').countDocuments({ brandStatus: { $in: ['pending_payment', 'pending_review'] } }),
     db.collection('websites').countDocuments({ brandStatus: 'active' }),
     db.collection('billing_requests').countDocuments({ status: 'pending_review' }),
+    db.collection('merchant_verification_requests').countDocuments({ status: 'pending_sms' }),
     db.collection('payments').aggregate([
       { $group: { _id: null, totalAmount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]).toArray(),
@@ -118,6 +134,7 @@ async function adminDashboard(res, db) {
       pendingBrands,
       activeBrands,
       pendingBilling,
+      pendingMerchantVerifications,
       totalSms: Number(paymentSummary[0]?.count || 0),
       totalSmsAmount: Number(paymentSummary[0]?.totalAmount || 0),
       adminIncomeAmount: accountHistory.summary.totalAmount,
@@ -127,6 +144,7 @@ async function adminDashboard(res, db) {
     clients: clients.map(serializeClient),
     brands: await attachClientEmails(db, websites),
     billingRequests: await attachBillingClientEmails(db, billingRequests),
+    merchantVerifications: await attachMerchantVerificationDetails(db, merchantRequests),
     payments: payments.map(serializePayment),
     accountHistory: accountHistory.items,
     devices: devices.map(serializeDevice),
@@ -263,6 +281,41 @@ async function listHistory(req, res, db) {
   });
 }
 
+async function listMerchantVerifications(req, res, db) {
+  const page = Math.max(Number(req.query.page || 1), 1);
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
+  const status = cleanString(req.query.status, 40);
+  const search = cleanString(req.query.search, 120);
+  const filter = {};
+
+  if (status) filter.status = status;
+  if (search) {
+    const escaped = escapeRegex(search);
+    filter.$or = [
+      { transaction_id: { $regex: escaped, $options: 'i' } },
+      { domain: { $regex: escaped, $options: 'i' } },
+      { order_id: { $regex: escaped, $options: 'i' } },
+      { sellerName: { $regex: escaped, $options: 'i' } },
+      { buyerName: { $regex: escaped, $options: 'i' } },
+      { adminNote: { $regex: escaped, $options: 'i' } }
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    db.collection('merchant_verification_requests').find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
+    db.collection('merchant_verification_requests').countDocuments(filter)
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    items: await attachMerchantVerificationDetails(db, items)
+  });
+}
+
 async function updateBrand(req, res, db, admin) {
   const websiteId = cleanString(req.body?.websiteId || req.body?.id, 80);
   const billingRequestId = cleanString(req.body?.billingRequestId, 80);
@@ -360,6 +413,37 @@ async function updateBrand(req, res, db, admin) {
     success: true,
     message: status === 'active' ? 'Brand approved and Android app unlocked' : 'Brand updated',
     brand: serializeWebsite(website)
+  });
+}
+
+async function updateMerchantVerification(req, res, db, admin) {
+  const id = cleanString(req.body?.id || req.body?.requestId, 80);
+  const transactionId = cleanString(req.body?.transaction_id || req.body?.transactionId, 120);
+  const status = cleanString(req.body?.status, 40);
+  const adminNote = cleanString(req.body?.adminNote || req.body?.note, 800);
+  const reviewedBy = admin.email || admin.username || 'admin';
+
+  const updated = await manuallyUpdateMerchantVerification({
+    db,
+    requestId: id,
+    transactionId,
+    status,
+    adminNote,
+    reviewedBy
+  });
+
+  if (!updated) {
+    return res.status(400).json({ success: false, error: 'Valid merchant verification id and status are required' });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: status === 'rejected'
+      ? 'Merchant verification rejected'
+      : status === 'pending_sms'
+        ? 'Merchant verification returned to pending'
+        : 'Merchant verification approved manually',
+    merchantVerification: serializeMerchantVerification(updated)
   });
 }
 
@@ -559,6 +643,37 @@ async function attachBillingClientEmails(db, requests) {
     const client = clientMap.get(String(request.clientId));
     return {
       ...serializeBillingRequest(request),
+      clientEmail: client?.email || '',
+      clientName: client?.name || ''
+    };
+  });
+}
+
+async function attachMerchantVerificationDetails(db, requests) {
+  const clientIds = [...new Set(requests.map((request) => String(request.clientId || '')).filter(ObjectId.isValid))]
+    .map((id) => new ObjectId(id));
+  const websiteIds = [...new Set(requests.map((request) => String(request.websiteId || '')).filter(ObjectId.isValid))]
+    .map((id) => new ObjectId(id));
+
+  const [clients, websites] = await Promise.all([
+    clientIds.length
+      ? db.collection('clients').find({ _id: { $in: clientIds } }).project({ email: 1, name: 1 }).toArray()
+      : [],
+    websiteIds.length
+      ? db.collection('websites').find({ _id: { $in: websiteIds } }).project({ name: 1, domain: 1 }).toArray()
+      : []
+  ]);
+
+  const clientMap = new Map(clients.map((client) => [String(client._id), client]));
+  const websiteMap = new Map(websites.map((website) => [String(website._id), website]));
+
+  return requests.map((request) => {
+    const client = clientMap.get(String(request.clientId || ''));
+    const website = websiteMap.get(String(request.websiteId || ''));
+    return {
+      ...serializeMerchantVerification(request),
+      domain: request.domain || website?.domain || '',
+      brandName: website?.name || '',
       clientEmail: client?.email || '',
       clientName: client?.name || ''
     };

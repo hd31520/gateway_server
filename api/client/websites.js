@@ -15,6 +15,7 @@ import {
   publicServerError,
   serializeWebsite
 } from '../_utils.js';
+import { safeRequestBody } from '../_utils.js';
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, POST, OPTIONS')) return;
@@ -32,7 +33,8 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const body = req.body || {};
+      const body = safeRequestBody(req, res);
+      if (body === null) return;
       const domain = normalizeDomain(body.domain);
       const name = cleanString(body.name, 120) || domain;
       const walletProvider = cleanString(body.walletProvider || body.receiverMethod, 40).toLowerCase();

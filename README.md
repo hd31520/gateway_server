@@ -150,7 +150,7 @@ Rules:
 
 - The domain must be active with monthly Tk 60 paid.
 - The API key must belong to that domain.
-- The `transaction_id` and `amount` must match an unused Android SMS payment.
+- The `transaction_id` and `amount` must match an unused Android SMS payment. If the merchant verifies before the SMS arrives, the request is saved as `pending_sms` and is approved automatically when the matching Android SMS is uploaded.
 - A transaction ID can only be used once.
 - Manual acceptance is disabled by default. Only enable `ALLOW_MANUAL_MERCHANT_ACCEPT=true` if you intentionally accept the fraud risk.
 
