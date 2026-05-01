@@ -1,0 +1,2 @@
+// Disabled: SMS handler moved to server/handlers/sms.js
+export default function disabled() { return { disabled: true }; }

@@ -1,0 +1,2 @@
+// Disabled: payments handler moved to server/handlers/payments.js
+export default function disabled() { return { disabled: true }; }

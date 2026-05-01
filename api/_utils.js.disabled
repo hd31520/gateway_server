@@ -1,0 +1,7 @@
+// Disabled: original API helper moved to server/handlers/_utils.js
+// This file was renamed to avoid Vercel counting it as an individual function.
+// Use the catch-all API at /api/[...slug] which dispatches to server/handlers.
+
+export default function disabled() {
+  return { disabled: true };
+}

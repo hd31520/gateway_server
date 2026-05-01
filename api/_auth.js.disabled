@@ -1,0 +1,2 @@
+// Disabled: auth helper moved to server/handlers/_auth.js
+export default function disabled() { return { disabled: true }; }

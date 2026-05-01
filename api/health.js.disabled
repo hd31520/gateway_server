@@ -1,0 +1,2 @@
+// Disabled: health endpoint moved to server/handlers/health.js
+export default function disabled() { return { disabled: true }; }

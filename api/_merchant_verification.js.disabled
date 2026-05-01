@@ -1,0 +1,2 @@
+// Disabled: moved to server/handlers/_merchant_verification.js
+export default function disabled() { return { disabled: true }; }
