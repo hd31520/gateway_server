@@ -14,7 +14,8 @@ function setCorsMidware(req, res) {
   
   // Handle preflight
   if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+    res.status(204).end();
+    return true;
   }
   
   return false;
