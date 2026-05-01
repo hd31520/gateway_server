@@ -283,7 +283,7 @@ async function handleBilling(req, res, db, clientId) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-        : 'Billing request submitted. It will auto-approve when the matching admin SMS TrxID arrives.',
+  const body = safeRequestBody(req, res);
   if (body === null) return;
 
   const websiteId = cleanString(body.websiteId || body.website_id, 80);
