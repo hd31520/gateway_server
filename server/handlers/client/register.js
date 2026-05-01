@@ -2,12 +2,11 @@ import bcrypt from 'bcryptjs';
 import { getDb } from '../_db.js';
 import { signClientToken } from '../_auth.js';
 import { getAdminConfig } from '../_admin.js';
-import { cleanString, handleCors, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient, safeRequestBody } from '../_utils.js';
+import { cleanString, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient, safeRequestBody } from '../_utils.js';
 
 const MIN_PASSWORD_LENGTH = 10;
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'POST, OPTIONS')) return;
 
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });

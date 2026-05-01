@@ -9,7 +9,7 @@ import { autoApprovePendingMerchantVerification } from './_merchant_verification
 import {
   BRAND_OPENING_FEE,
   cleanString,
-  handleCors,
+
   normalizeAmount,
   publicServerError,
   rateLimit,

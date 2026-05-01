@@ -9,7 +9,7 @@ import {
 import {
   BRAND_OPENING_FEE,
   cleanString,
-  handleCors,
+
   normalizeDomain,
   normalizeWalletNumber,
   publicServerError,
@@ -18,8 +18,6 @@ import {
 import { safeRequestBody } from '../_utils.js';
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'GET, POST, OPTIONS')) return;
-
   const auth = await requireClient(req, res);
   if (!auth) return;
 

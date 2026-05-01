@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireAdmin } from './_auth.js';
-import { escapeRegex, handleCors, publicServerError, serializePayment, safeRequestBody } from './_utils.js';
+import { escapeRegex, publicServerError, serializePayment, safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, PATCH, OPTIONS')) return;

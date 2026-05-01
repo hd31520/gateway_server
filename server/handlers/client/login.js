@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { getDb } from '../_db.js';
 import { signClientToken } from '../_auth.js';
 import { createAdminSession, getAdminConfig } from '../_admin.js';
-import { cleanString, handleCors, normalizeEmail, publicServerError, rateLimit, safeRequestBody, serializeClient } from '../_utils.js';
+import { cleanString, normalizeEmail, publicServerError, rateLimit, safeRequestBody, serializeClient } from '../_utils.js';
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'POST, OPTIONS')) return;

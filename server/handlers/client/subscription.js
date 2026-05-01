@@ -10,7 +10,6 @@ import {
   BRAND_OPENING_FEE,
   MONTHLY_DOMAIN_FEE,
   addOneMonth,
-  handleCors,
   normalizeAmount,
   publicServerError,
   serializeWebsite
