@@ -4,7 +4,8 @@ import { requireClient } from '../_auth.js';
 import {
   activateWebsiteFromAdminPayment,
   normalizeTransactionId,
-  unwrapMongoResult
+  unwrapMongoResult,
+  upsertBillingRequest
 } from '../_billing.js';
 import {
   BRAND_OPENING_FEE,
@@ -12,6 +13,7 @@ import {
   addOneMonth,
   normalizeAmount,
   publicServerError,
+  serializeBillingRequest,
   serializeWebsite
 } from '../_utils.js';
 import { safeRequestBody } from '../_utils.js';
@@ -67,15 +69,46 @@ export default async function handler(req, res) {
     });
 
     if (activation) {
+      const billingRequest = await upsertBillingRequest({
+        db,
+        clientId,
+        websiteId: websiteObjectId,
+        domain: website.domain,
+        transactionId,
+        amount: fee,
+        months: 1,
+        status: 'approved',
+        note: 'Subscription payment submitted from client portal',
+        adminNote: 'Auto approved after matching admin SMS payment',
+        paymentId: activation.payment?._id,
+        autoApproved: true,
+        now
+      });
+
       return res.status(200).json({
         success: true,
         autoApproved: true,
         message: activation.alreadyApplied
           ? 'This admin SMS payment was already applied to this brand.'
           : 'Admin SMS payment matched. Brand activated automatically and API key is ready.',
-        website: serializeWebsite(activation.website)
+        website: serializeWebsite(activation.website),
+        billingRequest
       });
     }
+
+    const billingRequest = await upsertBillingRequest({
+      db,
+      clientId,
+      websiteId: websiteObjectId,
+      domain: website.domain,
+      transactionId,
+      amount: fee,
+      months: 1,
+      status: 'pending_review',
+      note: 'Subscription payment submitted from client portal',
+      adminNote: 'Waiting for matching admin SMS payment',
+      now
+    });
 
     const paymentResult = await db.collection('payments').findOneAndUpdate(
       {
@@ -101,9 +134,12 @@ export default async function handler(req, res) {
     const payment = unwrapMongoResult(paymentResult);
 
     if (!payment) {
-      return res.status(404).json({
-        success: false,
-        error: `No unused Tk ${fee} payment found for this account and transaction ID`
+      return res.status(202).json({
+        success: true,
+        autoApproved: false,
+        message: 'Subscription request saved. It will auto-approve when the matching admin SMS TrxID is recorded.',
+        website: serializeWebsite(website),
+        billingRequest: billingRequest ? serializeBillingRequest(billingRequest) : null
       });
     }
 
@@ -138,6 +174,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
+      autoApproved: true,
       message: 'Domain subscription renewed',
       website: serializeWebsite({
         ...website,
@@ -147,7 +184,8 @@ export default async function handler(req, res) {
         androidAppEnabled: true,
         approvedAt: website.approvedAt || now,
         updatedAt: now
-      })
+      }),
+      billingRequest: billingRequest ? serializeBillingRequest(billingRequest) : null
     });
   } catch (error) {
     if (error && error.code === 11000) {

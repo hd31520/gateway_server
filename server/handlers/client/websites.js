@@ -157,7 +157,7 @@ export default async function handler(req, res) {
         return res.status(201).json({
           success: true,
           autoApproved: false,
-          message: 'Brand request saved. It will activate automatically when the admin SMS with this TrxID is available, otherwise admin can review it.',
+          message: 'Brand request saved. It will auto-approve when the matching admin SMS TrxID is recorded.',
           website: serializeWebsite(website)
         });
       }
@@ -165,7 +165,7 @@ export default async function handler(req, res) {
       return res.status(201).json({
         success: true,
         autoApproved: false,
-        message: 'Brand request saved. Submit the admin payment TrxID to activate it.',
+        message: 'Brand request saved. Submit the admin payment TrxID and it will auto-approve when the SMS matches.',
         website: serializeWebsite(website)
       });
     }
