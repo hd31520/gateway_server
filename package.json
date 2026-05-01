@@ -7,7 +7,7 @@
     "dev": "node local-server.js",
     "vercel:dev": "vercel dev",
     "start": "node local-server.js",
-    "check": "node --check api/_utils.js && node --check api/_auth.js && node --check api/logout.js && node --check api/admin.js && node --check api/client/login.js && node --check api/client/logout.js && node --check api/client/me.js && node --check api/merchant/verify.js && node --check local-server.js"
+    "check": "node --check api/_utils.js && node --check api/_auth.js && node --check api/_billing.js && node --check api/_db.js && node --check api/sms.js && node --check api/logout.js && node --check api/admin.js && node --check api/client/login.js && node --check api/client/logout.js && node --check api/client/me.js && node --check api/client/websites.js && node --check api/client/subscription.js && node --check api/merchant/verify.js && node --check local-server.js"
   },
   "dependencies": {
     "bcryptjs": "3.0.3",

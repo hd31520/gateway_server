@@ -67,6 +67,9 @@ async function ensureIndexes(db) {
   await db.collection('payments').createIndex({ createdAt: -1 });
   await db.collection('payments').createIndex({ sender: 1 });
   await db.collection('payments').createIndex({ usedFor: 1 });
+  await db.collection('payments').createIndex({ submittedBy: 1, createdAt: -1 });
+  await db.collection('payments').createIndex({ websiteId: 1, createdAt: -1 });
+  await db.collection('payments').createIndex({ transaction_id: 1, amount: 1 });
   await db.collection('payments').createIndex({ submittedByClientId: 1, createdAt: -1 });
   await db.collection('payments').createIndex({ clientId: 1, createdAt: -1 });
   await db.collection('clients').createIndex({ email: 1 }, { unique: true });

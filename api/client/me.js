@@ -3,6 +3,11 @@ import { getDb } from '../_db.js';
 import { requireClient } from '../_auth.js';
 import { getAdminConfig } from '../_admin.js';
 import {
+  activateWebsiteFromAdminPayment,
+  normalizeTransactionId,
+  upsertBillingRequest
+} from '../_billing.js';
+import {
   BRAND_OPENING_FEE,
   cleanString,
   defaultClientSettings,
@@ -35,7 +40,7 @@ const plans = [
 
 const docs = [
   {
-    title: 'Admin login and brand approval',
+    title: 'Admin login and manual brand review',
     method: 'POST/GET/PATCH',
     path: '/api/admin?action=login',
     auth: 'Admin email + password / Bearer admin_token',
@@ -70,14 +75,14 @@ const docs = [
     body: []
   },
   {
-    title: 'Create brand',
+    title: 'Create brand with auto activation',
     method: 'POST',
     path: '/api/client/websites',
     auth: 'Bearer client_token',
-    body: ['name', 'domain', 'walletProvider', 'walletNumber', 'receiverName']
+    body: ['name', 'domain', 'walletProvider', 'walletNumber', 'receiverName', 'transaction_id']
   },
   {
-    title: 'Submit billing request',
+    title: 'Submit admin payment TrxID',
     method: 'POST',
     path: '/api/client/me?resource=billing',
     auth: 'Bearer client_token',
@@ -313,7 +318,7 @@ async function handleBilling(req, res, db, clientId) {
 
   if (req.method === 'POST') {
     const websiteId = cleanString(req.body?.websiteId, 80);
-    const transactionId = cleanString(req.body?.transaction_id || req.body?.transactionId, 120).toUpperCase();
+    const transactionId = normalizeTransactionId(req.body?.transaction_id || req.body?.transactionId);
     const amount = Number(req.body?.amount || BRAND_OPENING_FEE);
     const months = Math.min(Math.max(Number(req.body?.months || 1), 1), 24);
     const note = cleanString(req.body?.note, 800);
@@ -333,9 +338,55 @@ async function handleBilling(req, res, db, clientId) {
     }
 
     const now = new Date();
+    const monthlyFee = Number(website.brandCharge || website.monthlyFee || BRAND_OPENING_FEE);
+    const expectedAmount = Number((monthlyFee * months).toFixed(2));
+    if (Number(amount.toFixed(2)) !== expectedAmount) {
+      return res.status(400).json({ success: false, error: `Payment amount must be Tk ${expectedAmount}` });
+    }
+
     const existingRequest = await db.collection('billing_requests').findOne({ transaction_id: transactionId });
     if (existingRequest && String(existingRequest.clientId) !== String(clientId)) {
       return res.status(409).json({ success: false, error: 'This transaction ID is already submitted by another account' });
+    }
+
+    const activation = await activateWebsiteFromAdminPayment({
+      db,
+      website,
+      websiteId: websiteObjectId,
+      clientId,
+      transactionId,
+      amount,
+      months,
+      purpose: website.paidUntil ? 'domain_subscription' : 'brand_opening',
+      now
+    });
+
+    if (activation) {
+      const saved = await upsertBillingRequest({
+        db,
+        clientId,
+        websiteId: websiteObjectId,
+        domain: website.domain,
+        transactionId,
+        amount,
+        months,
+        status: 'approved',
+        note,
+        adminNote: 'Auto approved after matching admin SMS payment',
+        paymentId: activation.payment?._id,
+        autoApproved: true,
+        now
+      });
+
+      return res.status(200).json({
+        success: true,
+        autoApproved: true,
+        message: activation.alreadyApplied
+          ? 'This admin SMS payment was already applied to this brand.'
+          : 'Admin SMS payment matched. Brand activated automatically and API key is ready.',
+        billingRequest: serializeBillingRequest(saved),
+        website: serializeWebsite(activation.website)
+      });
     }
 
     const request = {
@@ -366,6 +417,7 @@ async function handleBilling(req, res, db, clientId) {
         $set: {
           brandStatus: 'pending_review',
           paymentStatus: 'pending_review',
+          adminNote: 'Payment TrxID submitted, but no matching admin SMS was found yet.',
           updatedAt: now
         }
       }
@@ -374,7 +426,8 @@ async function handleBilling(req, res, db, clientId) {
     const saved = result?.value || await db.collection('billing_requests').findOne({ transaction_id: transactionId });
     return res.status(201).json({
       success: true,
-      message: 'Billing request submitted for admin review',
+      autoApproved: false,
+      message: 'Payment TrxID saved. It will activate automatically when the admin SMS record is available, otherwise admin can review it.',
       billingRequest: serializeBillingRequest(saved)
     });
   }

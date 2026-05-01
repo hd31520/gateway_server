@@ -2,6 +2,11 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../_db.js';
 import { generateApiKey, requireClient } from '../_auth.js';
 import {
+  activateWebsiteFromAdminPayment,
+  normalizeTransactionId,
+  upsertBillingRequest
+} from '../_billing.js';
+import {
   BRAND_OPENING_FEE,
   cleanString,
   handleCors,
@@ -33,6 +38,7 @@ export default async function handler(req, res) {
       const walletProvider = cleanString(body.walletProvider || body.receiverMethod, 40).toLowerCase();
       const walletNumber = normalizeWalletNumber(body.walletNumber || body.receiverNumber);
       const receiverName = cleanString(body.receiverName, 120) || name;
+      const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId || body.adminTransactionId);
       const allowedProviders = ['bkash', 'nagad', 'rocket', 'upay', 'bank', 'other'];
 
       if (!domain) {
@@ -45,6 +51,13 @@ export default async function handler(req, res) {
 
       if (!walletNumber || walletNumber.length < 8) {
         return res.status(400).json({ success: false, error: 'Valid receiver wallet number is required' });
+      }
+
+      if (transactionId) {
+        const existingRequest = await db.collection('billing_requests').findOne({ transaction_id: transactionId });
+        if (existingRequest && String(existingRequest.clientId) !== String(clientId)) {
+          return res.status(409).json({ success: false, error: 'This transaction ID is already submitted by another account' });
+        }
       }
 
       const now = new Date();
@@ -69,7 +82,89 @@ export default async function handler(req, res) {
       const result = await db.collection('websites').insertOne(website);
       website._id = result.insertedId;
 
-      return res.status(201).json({ success: true, website: serializeWebsite(website) });
+      if (transactionId) {
+        const activation = await activateWebsiteFromAdminPayment({
+          db,
+          website,
+          websiteId: website._id,
+          clientId,
+          transactionId,
+          amount: BRAND_OPENING_FEE,
+          months: 1,
+          purpose: 'brand_opening'
+        });
+
+        if (activation) {
+          const billingRequest = await upsertBillingRequest({
+            db,
+            clientId,
+            websiteId: website._id,
+            domain,
+            transactionId,
+            amount: BRAND_OPENING_FEE,
+            months: 1,
+            status: 'approved',
+            note: 'Brand opening payment submitted during brand creation',
+            adminNote: 'Auto approved after matching admin SMS payment',
+            paymentId: activation.payment?._id,
+            autoApproved: true,
+            now
+          });
+
+          return res.status(201).json({
+            success: true,
+            autoApproved: true,
+            message: 'Admin SMS payment matched. Brand opened automatically and API key is ready.',
+            website: serializeWebsite(activation.website),
+            billingRequest
+          });
+        }
+
+        await upsertBillingRequest({
+          db,
+          clientId,
+          websiteId: website._id,
+          domain,
+          transactionId,
+          amount: BRAND_OPENING_FEE,
+          months: 1,
+          status: 'pending_review',
+          note: 'Brand opening payment submitted during brand creation',
+          adminNote: 'No matching admin SMS payment found yet',
+          now
+        });
+
+        website.brandStatus = 'pending_review';
+        website.paymentStatus = 'pending_review';
+        website.adminNote = 'Payment TrxID submitted, but no matching admin SMS was found yet.';
+        website.updatedAt = now;
+
+        await db.collection('websites').updateOne(
+          { _id: website._id, clientId },
+          {
+            $set: {
+              brandStatus: website.brandStatus,
+              paymentStatus: website.paymentStatus,
+              adminNote: website.adminNote,
+              updatedAt: now
+            }
+          }
+        );
+
+        return res.status(201).json({
+          success: true,
+          autoApproved: false,
+          message: 'Brand request saved. It will activate automatically when the admin SMS with this TrxID is available, otherwise admin can review it.',
+          website: serializeWebsite(website)
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        autoApproved: false,
+        message: 'Brand request saved. Submit the admin payment TrxID to activate it.',
+        website: serializeWebsite(website)
+      });
     }
 
     return res.status(405).json({ success: false, error: 'Method not allowed' });

@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireAdmin } from './_auth.js';
 import { createAdminSession, getAdminConfig } from './_admin.js';
+import { adminPaymentRecordFilter } from './_billing.js';
 import {
   BRAND_OPENING_FEE,
   addOneMonth,
@@ -50,6 +51,10 @@ export default async function handler(req, res) {
         return listBilling(req, res, db);
       }
 
+      if (action === 'history') {
+        return listHistory(req, res, db);
+      }
+
       if (action === 'payments' || action === 'sms') {
         return listPayments(req, res, db);
       }
@@ -86,7 +91,7 @@ async function loginAdmin(req, res) {
 }
 
 async function adminDashboard(res, db) {
-  const [clients, websites, payments, devices, tickets, billingRequests, totalClients, totalBrands, pendingBrands, activeBrands, pendingBilling, paymentSummary] = await Promise.all([
+  const [clients, websites, payments, devices, tickets, billingRequests, totalClients, totalBrands, pendingBrands, activeBrands, pendingBilling, paymentSummary, accountHistory] = await Promise.all([
     db.collection('clients').find({}).sort({ createdAt: -1 }).limit(20).toArray(),
     db.collection('websites').find({}).sort({ createdAt: -1 }).limit(30).toArray(),
     db.collection('payments').find({}).sort({ createdAt: -1 }).limit(30).toArray(),
@@ -100,7 +105,8 @@ async function adminDashboard(res, db) {
     db.collection('billing_requests').countDocuments({ status: 'pending_review' }),
     db.collection('payments').aggregate([
       { $group: { _id: null, totalAmount: { $sum: '$amount' }, count: { $sum: 1 } } }
-    ]).toArray()
+    ]).toArray(),
+    getAdminAccountHistory(db, { limit: 30 })
   ]);
 
   return res.status(200).json({
@@ -113,12 +119,16 @@ async function adminDashboard(res, db) {
       activeBrands,
       pendingBilling,
       totalSms: Number(paymentSummary[0]?.count || 0),
-      totalSmsAmount: Number(paymentSummary[0]?.totalAmount || 0)
+      totalSmsAmount: Number(paymentSummary[0]?.totalAmount || 0),
+      adminIncomeAmount: accountHistory.summary.totalAmount,
+      adminIncomeCount: accountHistory.summary.totalCount,
+      unusedAdminAmount: accountHistory.summary.unusedAmount
     },
     clients: clients.map(serializeClient),
     brands: await attachClientEmails(db, websites),
     billingRequests: await attachBillingClientEmails(db, billingRequests),
     payments: payments.map(serializePayment),
+    accountHistory: accountHistory.items,
     devices: devices.map(serializeDevice),
     tickets: tickets.map(serializeTicket)
   });
@@ -233,6 +243,23 @@ async function listPayments(req, res, db) {
     total,
     totalPages: Math.ceil(total / limit),
     items: items.map(serializePayment)
+  });
+}
+
+async function listHistory(req, res, db) {
+  const page = Math.max(Number(req.query.page || 1), 1);
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
+  const search = cleanString(req.query.search, 120);
+  const history = await getAdminAccountHistory(db, { page, limit, search });
+
+  return res.status(200).json({
+    success: true,
+    page,
+    limit,
+    total: history.total,
+    totalPages: Math.ceil(history.total / limit),
+    summary: history.summary,
+    items: history.items
   });
 }
 
@@ -374,6 +401,133 @@ async function updateUser(req, res, db) {
   }
 
   return res.status(200).json({ success: true, user: serializeClient(client) });
+}
+
+async function getAdminAccountHistory(db, options = {}) {
+  const page = Math.max(Number(options.page || 1), 1);
+  const limit = Math.min(Math.max(Number(options.limit || 30), 1), 100);
+  const search = cleanString(options.search, 120);
+  const filter = buildAdminHistoryFilter(search);
+
+  const [payments, total, summaryRows] = await Promise.all([
+    db.collection('payments').find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
+    db.collection('payments').countDocuments(filter),
+    db.collection('payments').aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$usedFor',
+          totalAmount: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }
+      }
+    ]).toArray()
+  ]);
+
+  return {
+    total,
+    summary: summarizeAdminHistory(summaryRows),
+    items: await attachAdminHistoryDetails(db, payments)
+  };
+}
+
+function buildAdminHistoryFilter(search) {
+  const base = adminPaymentRecordFilter();
+  if (!search) return base;
+
+  const escaped = escapeRegex(search);
+  return {
+    $and: [
+      base,
+      {
+        $or: [
+          { transaction_id: { $regex: escaped, $options: 'i' } },
+          { sender: { $regex: escaped, $options: 'i' } },
+          { provider: { $regex: escaped, $options: 'i' } },
+          { source_number: { $regex: escaped, $options: 'i' } },
+          { raw_message: { $regex: escaped, $options: 'i' } },
+          { usedFor: { $regex: escaped, $options: 'i' } }
+        ]
+      }
+    ]
+  };
+}
+
+function summarizeAdminHistory(rows = []) {
+  const summary = {
+    totalAmount: 0,
+    totalCount: 0,
+    usedAmount: 0,
+    usedCount: 0,
+    unusedAmount: 0,
+    unusedCount: 0,
+    brandOpeningAmount: 0,
+    subscriptionAmount: 0
+  };
+
+  for (const row of rows) {
+    const key = String(row._id || '');
+    const amount = Number(row.totalAmount || 0);
+    const count = Number(row.count || 0);
+
+    summary.totalAmount += amount;
+    summary.totalCount += count;
+
+    if (!key) {
+      summary.unusedAmount += amount;
+      summary.unusedCount += count;
+    } else {
+      summary.usedAmount += amount;
+      summary.usedCount += count;
+    }
+
+    if (key === 'brand_opening') summary.brandOpeningAmount += amount;
+    if (key === 'domain_subscription') summary.subscriptionAmount += amount;
+  }
+
+  return summary;
+}
+
+async function attachAdminHistoryDetails(db, payments) {
+  const websiteIds = [...new Set(payments.map((payment) => String(payment.websiteId || '')).filter(ObjectId.isValid))]
+    .map((id) => new ObjectId(id));
+  const paymentClientIds = payments.map((payment) => String(payment.clientId || '')).filter(ObjectId.isValid);
+
+  const websites = websiteIds.length
+    ? await db.collection('websites').find({ _id: { $in: websiteIds } }).project({ name: 1, domain: 1, clientId: 1 }).toArray()
+    : [];
+  const websiteMap = new Map(websites.map((website) => [String(website._id), website]));
+  const websiteClientIds = websites.map((website) => String(website.clientId || '')).filter(ObjectId.isValid);
+  const clientIds = [...new Set([...paymentClientIds, ...websiteClientIds])].map((id) => new ObjectId(id));
+  const clients = clientIds.length
+    ? await db.collection('clients').find({ _id: { $in: clientIds } }).project({ email: 1, name: 1 }).toArray()
+    : [];
+  const clientMap = new Map(clients.map((client) => [String(client._id), client]));
+
+  return payments.map((payment) => {
+    const website = websiteMap.get(String(payment.websiteId || ''));
+    const client = clientMap.get(String(payment.clientId || website?.clientId || ''));
+    return {
+      ...serializePayment(payment),
+      type: adminHistoryType(payment.usedFor),
+      direction: 'income',
+      submittedByAdmin: payment.submittedByAdmin || payment.submittedBy || '',
+      websiteId: payment.websiteId ? String(payment.websiteId) : null,
+      clientId: payment.clientId ? String(payment.clientId) : null,
+      domain: website?.domain || '',
+      brandName: website?.name || '',
+      clientEmail: client?.email || '',
+      clientName: client?.name || ''
+    };
+  });
+}
+
+function adminHistoryType(usedFor) {
+  if (usedFor === 'brand_opening') return 'Brand opening';
+  if (usedFor === 'domain_subscription') return 'Brand renewal';
+  if (usedFor === 'merchant_payment') return 'Merchant payment';
+  if (usedFor) return String(usedFor).replaceAll('_', ' ');
+  return 'Unmatched admin SMS';
 }
 
 async function attachClientEmails(db, websites) {

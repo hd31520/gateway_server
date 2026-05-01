@@ -1,13 +1,13 @@
 import { getDb } from '../_db.js';
 import {
   cleanString,
-  handleCors,
   isWebsiteActive,
   normalizeAmount,
   normalizeDomain,
   normalizePublicUrl,
   publicServerError,
-  rateLimit
+  rateLimit,
+  setSecurityHeaders
 } from '../_utils.js';
 
 function readApiKey(req) {
@@ -27,7 +27,7 @@ function ownerPaymentFilter(clientId) {
 }
 
 export default async function handler(req, res) {
-  if (handleCors(req, res, 'POST, OPTIONS')) return;
+  if (handleMerchantCors(req, res)) return;
 
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
@@ -203,6 +203,21 @@ export default async function handler(req, res) {
     console.error(error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
   }
+}
+
+function handleMerchantCors(req, res) {
+  setSecurityHeaders(res);
+  const origin = cleanString(req.headers.origin, 300);
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  if (origin) res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return true;
+  }
+  return false;
 }
 
 function buildReturnUrl(returnUrl, status, transactionId, orderId) {

@@ -179,7 +179,8 @@ $('#websiteForm').addEventListener('submit', async (event) => {
   const walletProvider = $('#walletProvider').value;
   const walletNumber = $('#walletNumber').value;
   const receiverName = $('#receiverName').value;
-  const res = await fetchJson('/api/client/websites', { name, domain, walletProvider, walletNumber, receiverName }, clientToken);
+  const transaction_id = $('#adminTransactionId').value;
+  const res = await fetchJson('/api/client/websites', { name, domain, walletProvider, walletNumber, receiverName, transaction_id }, clientToken);
 
   if (!res.ok) {
     message.textContent = res.data.error || 'Website add failed';
@@ -188,7 +189,7 @@ $('#websiteForm').addEventListener('submit', async (event) => {
   }
 
   $('#websiteForm').reset();
-  message.textContent = `Website added. Pay ${formatMoney(clientAdminPayment.brandOpeningFee || 60)} to activate the domain.`;
+  message.textContent = res.data.message || `Website added. Pay ${formatMoney(clientAdminPayment.brandOpeningFee || 60)} to activate the domain.`;
   message.className = 'notice success-text';
   await loadClientData();
 });
@@ -231,7 +232,7 @@ websiteList.addEventListener('submit', async (event) => {
     return;
   }
 
-  message.textContent = 'Domain activated for one month.';
+  message.textContent = res.data.message || 'Domain activated for one month.';
   message.className = 'renew-message success-text';
   input.value = '';
   await loadClientData();

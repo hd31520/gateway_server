@@ -2,21 +2,19 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../_db.js';
 import { requireClient } from '../_auth.js';
 import {
+  activateWebsiteFromAdminPayment,
+  normalizeTransactionId,
+  unwrapMongoResult
+} from '../_billing.js';
+import {
   BRAND_OPENING_FEE,
   MONTHLY_DOMAIN_FEE,
   addOneMonth,
-  cleanString,
   handleCors,
   normalizeAmount,
   publicServerError,
   serializeWebsite
 } from '../_utils.js';
-
-function unwrapMongoResult(result) {
-  if (!result) return null;
-  if (Object.prototype.hasOwnProperty.call(result, 'value')) return result.value;
-  return result;
-}
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'POST, OPTIONS')) return;
@@ -30,7 +28,7 @@ export default async function handler(req, res) {
 
   try {
     const websiteId = String(req.body?.websiteId || '');
-    const transactionId = cleanString(req.body?.transaction_id, 120);
+    const transactionId = normalizeTransactionId(req.body?.transaction_id || req.body?.transactionId);
     const fee = BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE;
     const submittedAmount = normalizeAmount(req.body?.amount || fee);
 
@@ -52,6 +50,29 @@ export default async function handler(req, res) {
     }
 
     const now = new Date();
+    const activation = await activateWebsiteFromAdminPayment({
+      db,
+      website,
+      websiteId: websiteObjectId,
+      clientId,
+      transactionId,
+      amount: fee,
+      months: 1,
+      purpose: website.paidUntil ? 'domain_subscription' : 'brand_opening',
+      now
+    });
+
+    if (activation) {
+      return res.status(200).json({
+        success: true,
+        autoApproved: true,
+        message: activation.alreadyApplied
+          ? 'This admin SMS payment was already applied to this brand.'
+          : 'Admin SMS payment matched. Brand activated automatically and API key is ready.',
+        website: serializeWebsite(activation.website)
+      });
+    }
+
     const paymentResult = await db.collection('payments').findOneAndUpdate(
       {
         $and: [
@@ -114,7 +135,15 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       message: 'Domain subscription renewed',
-      website: serializeWebsite({ ...website, paidUntil, updatedAt: now })
+      website: serializeWebsite({
+        ...website,
+        paidUntil,
+        brandStatus: 'active',
+        paymentStatus: 'paid',
+        androidAppEnabled: true,
+        approvedAt: website.approvedAt || now,
+        updatedAt: now
+      })
     });
   } catch (error) {
     if (error && error.code === 11000) {
