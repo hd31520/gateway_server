@@ -2,7 +2,20 @@ import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireAdmin, signAdminToken } from './_auth.js';
 import { createAdminSession, getAdminConfig } from './_admin.js';
-import { publicServerError, safeRequestBody } from './_utils.js';
+import {
+  BRAND_OPENING_FEE,
+  getAndroidAppDownloadUrl,
+  publicServerError,
+  safeRequestBody,
+  serializeBillingRequest,
+  serializeClient,
+  serializeDevice,
+  serializeMerchantVerification,
+  serializePayment,
+  serializeSettings,
+  serializeTicket,
+  serializeWebsite
+} from './_utils.js';
 
 export default async function handler(req, res) {
   if (req.method === 'POST') {
@@ -51,28 +64,122 @@ async function handleAdminGet(req, res) {
     const db = await getDb();
     const config = getAdminConfig();
 
-    // Get summary stats
-    const [totalClients, totalBrands, pendingBrands, activeBrands] = await Promise.all([
-      db.collection('clients').countDocuments({}),
-      db.collection('websites').countDocuments({}),
-      db.collection('websites').countDocuments({ brandStatus: 'pending_review' }),
-      db.collection('websites').countDocuments({ brandStatus: 'active' })
+    const [
+      clients,
+      websites,
+      payments,
+      billingRequests,
+      merchantVerifications,
+      devices,
+      tickets,
+      settings
+    ] = await Promise.all([
+      db.collection('clients').find({}).sort({ createdAt: -1 }).limit(50).toArray(),
+      db.collection('websites').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
+      db.collection('payments').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
+      db.collection('billing_requests').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
+      db.collection('merchant_verifications').find({}).sort({ createdAt: -1 }).limit(100).toArray(),
+      db.collection('client_devices').find({}).sort({ lastSeenAt: -1 }).limit(50).toArray(),
+      db.collection('support_tickets').find({}).sort({ createdAt: -1 }).limit(50).toArray(),
+      db.collection('admin_settings').findOne({})
     ]);
 
-    const pendingBilling = await db.collection('billing_requests').countDocuments({ status: 'pending_review' });
-    const pendingMerchantVerifications = await db.collection('merchant_verifications').countDocuments({ status: 'pending' });
+    const brandedWebsites = websites.map((website) => serializeWebsite(website));
+    const serializedClients = clients.map((client) => serializeClient(client));
+    const serializedPayments = payments.map((payment) => serializePayment(payment));
+    const serializedBillingRequests = billingRequests.map((request) => serializeBillingRequest(request));
+    const serializedMerchantVerifications = merchantVerifications.map((item) => serializeMerchantVerification(item));
+    const serializedDevices = devices.map((device) => serializeDevice(device));
+    const serializedTickets = tickets.map((ticket) => serializeTicket(ticket));
+
+    const totalSmsAmount = serializedPayments.reduce((total, item) => total + Number(item.amount || 0), 0);
+    const adminIncomeItems = payments.filter((payment) => Boolean(payment.usedFor));
+    const adminIncomeAmount = adminIncomeItems.reduce((total, item) => total + Number(item.amount || 0), 0);
+
+    const accountHistory = [
+      ...payments.map((payment) => ({
+        id: `payment:${String(payment._id)}`,
+        type: 'sms_payment',
+        transaction_id: payment.transaction_id || '',
+        domain: payment.domain || '',
+        brandName: payment.brandName || '',
+        clientEmail: payment.clientEmail || '',
+        provider: payment.provider || payment.sender || '',
+        sender: payment.sender || payment.provider || '',
+        amount: Number(payment.amount || 0),
+        status: payment.status || 'received',
+        usedFor: payment.usedFor || '',
+        createdAt: payment.createdAt,
+        updatedAt: payment.updatedAt || null
+      })),
+      ...billingRequests.map((request) => ({
+        id: `billing:${String(request._id)}`,
+        type: 'billing_request',
+        transaction_id: request.transaction_id || '',
+        domain: request.domain || '',
+        brandName: request.domain || '',
+        clientEmail: request.clientEmail || '',
+        provider: 'billing_request',
+        sender: 'client',
+        amount: Number(request.amount || 0),
+        status: request.status || 'pending_review',
+        usedFor: 'brand_opening',
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt || null
+      })),
+      ...merchantVerifications.map((item) => ({
+        id: `merchant:${String(item._id)}`,
+        type: 'merchant_verification',
+        transaction_id: item.transaction_id || '',
+        domain: item.domain || '',
+        brandName: item.domain || '',
+        clientEmail: item.clientEmail || '',
+        provider: 'merchant_verification',
+        sender: 'client',
+        amount: Number(item.amount || 0),
+        status: item.status || 'pending_sms',
+        usedFor: 'merchant_payment',
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt || null
+      }))
+    ].sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0));
+
+    const totalClients = serializedClients.length;
+    const totalBrands = brandedWebsites.length;
+    const pendingBrands = brandedWebsites.filter((site) => String(site.brandStatus || '').startsWith('pending')).length;
+    const activeBrands = brandedWebsites.filter((site) => site.brandStatus === 'active').length;
+    const pendingBilling = serializedBillingRequests.filter((request) => ['pending', 'pending_review'].includes(String(request.status || ''))).length;
+    const pendingMerchantVerifications = serializedMerchantVerifications.filter((item) => item.status === 'pending_sms').length;
 
     return res.status(200).json({
       success: true,
       admin: auth,
       config,
+      clients: serializedClients,
+      brands: brandedWebsites,
+      billingRequests: serializedBillingRequests,
+      payments: serializedPayments,
+      accountHistory,
+      merchantVerifications: serializedMerchantVerifications,
+      devices: serializedDevices,
+      tickets: serializedTickets,
       summary: {
         totalClients,
         totalBrands,
         pendingBrands,
         activeBrands,
         pendingBilling,
-        pendingMerchantVerifications
+        pendingMerchantVerifications,
+        totalSms: serializedPayments.length,
+        totalSmsAmount,
+        adminIncomeAmount,
+        adminIncomeCount: adminIncomeItems.length,
+        unusedAdminAmount: Math.max(totalSmsAmount - adminIncomeAmount, 0)
+      },
+      runtime: {
+        brandOpeningFee: config.brandOpeningFee || BRAND_OPENING_FEE,
+        androidAppDownloadUrl: config.androidAppDownloadUrl || getAndroidAppDownloadUrl(),
+        settings: serializeSettings(settings || {})
       }
     });
   } catch (error) {
