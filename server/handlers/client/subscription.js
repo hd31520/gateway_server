@@ -14,7 +14,8 @@ import {
   normalizeAmount,
   publicServerError,
   serializeBillingRequest,
-  serializeWebsite
+  serializeWebsite,
+  computePlanAmount
 } from '../_utils.js';
 import { safeRequestBody } from '../_utils.js';
 
@@ -35,7 +36,8 @@ export default async function handler(req, res) {
 
     const websiteId = String(body.websiteId || '');
     const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId);
-    const fee = BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE;
+    const siteCount = Number(body.siteCount || 1) || 1;
+    const fee = body.siteCount ? computePlanAmount(siteCount) : (BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE);
     const submittedAmount = normalizeAmount(body.amount || fee);
 
     if (!ObjectId.isValid(websiteId) || !transactionId) {
@@ -43,7 +45,7 @@ export default async function handler(req, res) {
     }
 
     if (submittedAmount !== fee) {
-      return res.status(400).json({ success: false, error: `Domain monthly fee must be Tk ${fee}` });
+      return res.status(400).json({ success: false, error: `Submitted amount must equal Tk ${fee} for selected plan` });
     }
 
     const db = await getDb();

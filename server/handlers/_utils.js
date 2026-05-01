@@ -2,6 +2,15 @@ export const MONTHLY_DOMAIN_FEE = 60;
 export const BRAND_OPENING_FEE = Number(process.env.BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE);
 export const DEFAULT_ANDROID_APP_DOWNLOAD_PATH = '/gatewayflow-android.apk';
 
+export function computePlanAmount(siteCount) {
+  const n = Number(siteCount || 1) || 1;
+  if (n <= 1) return 60;
+  if (n <= 5) return 200;
+  if (n <= 20) return 400;
+  // For larger bundles, charge a modest incremental fee per extra site
+  return 400 + Math.max(0, n - 20) * 10;
+}
+
 const rateLimitBuckets = new Map();
 
 export function setSecurityHeaders(res) {
