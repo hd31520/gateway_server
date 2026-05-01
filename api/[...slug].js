@@ -31,6 +31,25 @@ function safeRouteFromSlug(slug) {
   return parts.join('/');
 }
 
+async function parseRequestBody(req) {
+  if (!['POST', 'PUT', 'PATCH'].includes(req.method)) return {};
+  
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  
+  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  if (!raw) return {};
+  
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error('Failed to parse request body:', error);
+    return {};
+  }
+}
+
 export default async function handler(req, res) {
   try {
     if (setCorsMiddleware(req, res)) return;
@@ -39,6 +58,9 @@ export default async function handler(req, res) {
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
+
+    // Parse request body for POST, PUT, PATCH
+    req.body = await parseRequestBody(req);
 
     let mod;
     try {
