@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../_db.js';
-import { generateApiKey, requireClient } from '../_auth.js';
+import { generateApiKey, hashApiKey, requireClient } from '../_auth.js';
 import {
   activateWebsiteFromAdminPayment,
   normalizeTransactionId,
@@ -64,11 +64,14 @@ export default async function handler(req, res) {
       }
 
       const now = new Date();
+      const apiKey = generateApiKey();
       const website = {
         clientId,
         name,
         domain,
-        apiKey: generateApiKey(),
+        apiKey,
+        apiKeyHash: hashApiKey(apiKey),
+        apiKeyLast4: apiKey.slice(-4),
         monthlyFee: BRAND_OPENING_FEE,
         brandCharge: BRAND_OPENING_FEE,
         brandStatus: 'pending_payment',

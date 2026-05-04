@@ -139,6 +139,10 @@ export function generateApiKey() {
   return `pg_live_${crypto.randomBytes(24).toString('hex')}`;
 }
 
+export function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(String(apiKey || '')).digest('hex');
+}
+
 export async function revokeBearerToken(req, expectedRole = '') {
   const token = getBearerToken(req);
   if (!token) return null;

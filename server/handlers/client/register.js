@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { getDb } from '../_db.js';
 import { signClientToken } from '../_auth.js';
 import { getAdminConfig } from '../_admin.js';
-import { cleanString, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient, safeRequestBody } from '../_utils.js';
+import { cleanString, isValidEmail, normalizeEmail, publicServerError, rateLimit, serializeClient, safeRequestBody, validatePassword } from '../_utils.js';
 
 const MIN_PASSWORD_LENGTH = 10;
 
@@ -21,6 +21,8 @@ export default async function handler(req, res) {
     const password = String(body.password || '');
     const name = cleanString(body.name, 120) || email.split('@')[0];
 
+    if (email && !rateLimit(req, res, { key: 'client-register-email', identity: email, limit: 3, windowMs: 60 * 60_000 })) return;
+
     if (!isValidEmail(email)) {
       return res.status(400).json({ success: false, error: 'Valid email is required' });
     }
@@ -30,8 +32,9 @@ export default async function handler(req, res) {
       return res.status(409).json({ success: false, error: 'Use the existing admin login for this email' });
     }
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return res.status(400).json({ success: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    const passwordError = validatePassword(password, { minLength: MIN_PASSWORD_LENGTH });
+    if (passwordError) {
+      return res.status(400).json({ success: false, error: passwordError });
     }
 
     const now = new Date();

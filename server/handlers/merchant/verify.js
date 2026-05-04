@@ -1,4 +1,5 @@
 import { getDb } from '../_db.js';
+import { hashApiKey } from '../_auth.js';
 import {
   findConflictingPendingMerchantVerification,
   ownerPaymentFilter,
@@ -13,6 +14,7 @@ import {
   normalizePublicUrl,
   publicServerError,
   rateLimit,
+  requireJsonRequest,
   setSecurityHeaders
 } from '../_utils.js';
 import { safeRequestBody } from '../_utils.js';
@@ -31,6 +33,7 @@ export default async function handler(req, res) {
   }
 
   if (!rateLimit(req, res, { key: 'merchant-verify-ip', limit: 90, windowMs: 60_000 })) return;
+  if (!requireJsonRequest(req, res)) return;
 
   try {
     const body = safeRequestBody(req, res);
@@ -57,10 +60,19 @@ export default async function handler(req, res) {
     if (!rateLimit(req, res, { key: 'merchant-verify-key', identity: apiKey, limit: 120, windowMs: 60_000 })) return;
 
     const db = await getDb();
-    const website = await db.collection('websites').findOne({ apiKey });
+    const website = await db.collection('websites').findOne({
+      $or: [
+        { apiKeyHash: hashApiKey(apiKey) },
+        { apiKey }
+      ]
+    });
 
     if (!website) {
       return res.status(401).json({ success: false, error: 'Invalid API key' });
+    }
+
+    if (!requestOriginAllowedForWebsite(req, website)) {
+      return res.status(403).json({ success: false, error: 'Request origin does not match this API key domain' });
     }
 
     if (!isWebsiteActive(website)) {
@@ -316,4 +328,18 @@ function buildReturnUrl(returnUrl, status, transactionId, orderId) {
 
 function merchantManualAcceptEnabled(website) {
   return process.env.ALLOW_MANUAL_MERCHANT_ACCEPT === 'true' || website.manualAcceptEnabled === true;
+}
+
+function requestOriginAllowedForWebsite(req, website) {
+  const origin = cleanString(req.headers.origin, 300);
+  const referer = cleanString(req.headers.referer, 500);
+  const source = origin || referer;
+  if (!source) return true;
+
+  try {
+    const hostname = normalizeDomain(new URL(source).hostname);
+    return hostname === website.domain || hostname.endsWith(`.${website.domain}`);
+  } catch (error) {
+    return false;
+  }
 }

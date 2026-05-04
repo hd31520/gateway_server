@@ -78,6 +78,7 @@ async function ensureIndexes(db) {
   await db.collection('websites').createIndex({ clientId: 1, createdAt: -1 });
   await db.collection('websites').createIndex({ domain: 1 }, { unique: true });
   await db.collection('websites').createIndex({ apiKey: 1 }, { unique: true });
+  await db.collection('websites').createIndex({ apiKeyHash: 1 }, { unique: true, sparse: true });
   await db.collection('websites').createIndex({ brandStatus: 1, createdAt: -1 });
   await db.collection('websites').createIndex({ paymentStatus: 1, createdAt: -1 });
   await db.collection('websites').createIndex({ walletNumber: 1 });

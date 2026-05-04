@@ -1,5 +1,5 @@
 import { createAdminSession } from './_admin.js';
-import { rateLimit, safeRequestBody } from './_utils.js';
+import { normalizeEmail, rateLimit, safeRequestBody } from './_utils.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -10,6 +10,12 @@ export default async function handler(req, res) {
 
   const body = safeRequestBody(req, res);
   if (body === null) return;
+  const email = normalizeEmail(body.email);
+
+  if (email && !rateLimit(req, res, { key: 'admin-login-email', identity: email, limit: 5, windowMs: 15 * 60_000 })) return;
+  if (String(body.password || '').length > 256) {
+    return res.status(400).json({ success: false, error: 'Invalid admin credentials' });
+  }
 
   const session = await createAdminSession(body);
   if (!session.ok) {

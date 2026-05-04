@@ -14,6 +14,7 @@ import {
   normalizeAmount,
   publicServerError,
   rateLimit,
+  requireJsonRequest,
   serializePayment,
   safeRequestBody
 } from './_utils.js';
@@ -51,6 +52,7 @@ export default async function handler(req, res) {
   }
 
   if (!rateLimit(req, res, { key: 'sms-submit', limit: 180, windowMs: 60_000 })) return;
+  if (!requireJsonRequest(req, res)) return;
 
   const submitter = await requireSmsSubmitter(req, res);
   if (!submitter) return;

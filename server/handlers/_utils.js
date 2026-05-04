@@ -106,6 +106,19 @@ export function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+export function validatePassword(password, options = {}) {
+  const value = String(password || '');
+  const minLength = Number(options.minLength || 10);
+  const maxLength = Number(options.maxLength || 128);
+
+  if (value.length < minLength) return `Password must be at least ${minLength} characters`;
+  if (value.length > maxLength) return `Password must be ${maxLength} characters or less`;
+  if (!/[a-z]/i.test(value) || !/[0-9]/.test(value)) {
+    return 'Password must include at least one letter and one number';
+  }
+  return '';
+}
+
 export function normalizeDomain(value) {
   let domain = String(value || '').trim().toLowerCase();
   if (!domain) return '';
@@ -212,6 +225,14 @@ export function safeRequestBody(req, res) {
     }
     return null;
   }
+}
+
+export function requireJsonRequest(req, res) {
+  if (!['POST', 'PUT', 'PATCH'].includes(req.method || '')) return true;
+  const contentType = String(req.headers?.['content-type'] || '').toLowerCase();
+  if (contentType.includes('application/json')) return true;
+  res.status(415).json({ success: false, error: 'Content-Type must be application/json' });
+  return false;
 }
 
 export function serializeClient(client) {

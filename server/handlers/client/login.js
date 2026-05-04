@@ -18,6 +18,11 @@ export default async function handler(req, res) {
     const email = normalizeEmail(body.email);
     const password = String(body.password || '');
 
+    if (email && !rateLimit(req, res, { key: 'client-login-email', identity: email, limit: 8, windowMs: 15 * 60_000 })) return;
+    if (password.length > 256) {
+      return res.status(400).json({ success: false, error: 'Invalid email or password' });
+    }
+
     const adminSession = await createAdminSession({ email, password });
     if (adminSession.ok) {
       const db = await getDb();
