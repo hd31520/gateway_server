@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ObjectId } from 'mongodb';
 import { autoApprovePendingMerchantVerification } from '../server/handlers/_merchant_verification.js';
+import { computePlanTotalAmount } from '../server/handlers/_utils.js';
+
+test('yearly packages bill 10 months and grant 12 months', () => {
+  assert.equal(computePlanTotalAmount(1, 12), 600);
+  assert.equal(computePlanTotalAmount(5, 12), 2000);
+  assert.equal(computePlanTotalAmount(20, 12), 4000);
+  assert.equal(computePlanTotalAmount(1, 1), 60);
+});
 
 test('auto-approves pending merchant verification from the merchant owned SMS record', async () => {
   const clientId = new ObjectId();

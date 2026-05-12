@@ -9,8 +9,8 @@ import { autoApprovePendingMerchantVerification } from './_merchant_verification
 import {
   BRAND_OPENING_FEE,
   cleanString,
-  computePlanAmount,
-
+  computePlanTotalAmount,
+  normalizeBillingMonths,
   normalizeAmount,
   publicServerError,
   rateLimit,
@@ -185,9 +185,9 @@ async function autoApprovePendingAdminPayment(db, payment, now) {
   const website = await db.collection('websites').findOne({ _id: request.websiteId, clientId: request.clientId });
   if (!website) return null;
 
-  const months = Math.min(Math.max(Number(request.months || 1), 1), 24);
+  const months = normalizeBillingMonths(request.months || 1);
   const siteCount = Math.min(Math.max(Number(request.siteCount || 1), 1), 500);
-  const expectedAmount = Number((computePlanAmount(siteCount) * months).toFixed(2));
+  const expectedAmount = computePlanTotalAmount(siteCount, months);
   if (!isSameAmount(payment.amount, expectedAmount)) return null;
 
   const activation = await activateWebsiteFromAdminPayment({

@@ -1,9 +1,10 @@
 import { ObjectId } from 'mongodb';
 import {
   BRAND_OPENING_FEE,
-  addOneMonth,
+  addMonths,
   cleanString,
-  normalizeAmount
+  normalizeAmount,
+  normalizeBillingMonths
 } from './_utils.js';
 
 const AUTO_APPROVAL_NOTE = 'Auto approved after matching admin SMS payment';
@@ -47,7 +48,7 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
 
   const cleanTransactionId = normalizeTransactionId(transactionId);
   const cleanAmount = normalizeAmount(amount);
-  const cleanMonths = Math.min(Math.max(Number(months || 1), 1), 24);
+  const cleanMonths = normalizeBillingMonths(months);
   const websiteObjectId = toObjectId(websiteId || website?._id);
   const clientObjectId = toObjectId(clientId || website?.clientId);
 
@@ -100,10 +101,10 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
 
   if (!payment) return null;
 
-  let paidUntil = currentWebsite.paidUntil && new Date(currentWebsite.paidUntil) > now
+  const baseDate = currentWebsite.paidUntil && new Date(currentWebsite.paidUntil) > now
     ? new Date(currentWebsite.paidUntil)
     : now;
-  for (let index = 0; index < cleanMonths; index += 1) paidUntil = addOneMonth(paidUntil);
+  const paidUntil = addMonths(baseDate, cleanMonths);
 
   const websiteUpdate = {
     paidUntil,
@@ -189,7 +190,7 @@ export async function upsertBillingRequest(options = {}) {
     domain: cleanString(domain, 180),
     transaction_id: cleanTransactionId,
     amount: cleanAmount,
-    months: Math.min(Math.max(Number(months || 1), 1), 24),
+    months: normalizeBillingMonths(months),
     siteCount: Math.min(Math.max(Number(siteCount || 1), 1), 500),
     status,
     note,

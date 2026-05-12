@@ -10,12 +10,13 @@ import {
 import {
   BRAND_OPENING_FEE,
   MONTHLY_DOMAIN_FEE,
-  addOneMonth,
+  addMonths,
+  computePlanTotalAmount,
   normalizeAmount,
+  normalizeBillingMonths,
   publicServerError,
   serializeBillingRequest,
-  serializeWebsite,
-  computePlanAmount
+  serializeWebsite
 } from '../_utils.js';
 import { safeRequestBody } from '../_utils.js';
 
@@ -37,7 +38,8 @@ export default async function handler(req, res) {
     const websiteId = String(body.websiteId || '');
     const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId);
     const siteCount = Number(body.siteCount || 1) || 1;
-    const fee = body.siteCount ? computePlanAmount(siteCount) : (BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE);
+    const months = normalizeBillingMonths(body.months || 1);
+    const fee = body.siteCount ? computePlanTotalAmount(siteCount, months) : (BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE);
     const submittedAmount = normalizeAmount(body.amount || fee);
 
     if (!ObjectId.isValid(websiteId) || !transactionId) {
@@ -65,7 +67,7 @@ export default async function handler(req, res) {
       clientId,
       transactionId,
       amount: fee,
-      months: 1,
+      months,
       purpose: website.paidUntil ? 'domain_subscription' : 'brand_opening',
       now
     });
@@ -78,7 +80,7 @@ export default async function handler(req, res) {
         domain: website.domain,
         transactionId,
         amount: fee,
-        months: 1,
+        months,
         siteCount,
         status: 'approved',
         note: 'Subscription payment submitted from client portal',
@@ -106,7 +108,7 @@ export default async function handler(req, res) {
       domain: website.domain,
       transactionId,
       amount: fee,
-      months: 1,
+      months,
       siteCount,
       status: 'pending_review',
       note: 'Subscription payment submitted from client portal',
@@ -150,7 +152,7 @@ export default async function handler(req, res) {
     const baseDate = website.paidUntil && new Date(website.paidUntil) > now
       ? new Date(website.paidUntil)
       : now;
-    const paidUntil = addOneMonth(baseDate);
+    const paidUntil = addMonths(baseDate, months);
 
     await db.collection('subscription_renewals').insertOne({
       clientId,
@@ -158,6 +160,7 @@ export default async function handler(req, res) {
       paymentId: payment._id,
       transaction_id: transactionId,
       amount: fee,
+      months,
       paidAt: now,
       paidUntil
     });

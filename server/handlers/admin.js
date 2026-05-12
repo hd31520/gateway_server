@@ -5,8 +5,9 @@ import { createAdminSession, getAdminConfig } from './_admin.js';
 import { unwrapMongoResult } from './_billing.js';
 import {
   BRAND_OPENING_FEE,
-  addOneMonth,
+  addMonths,
   getAndroidAppDownloadUrl,
+  normalizeBillingMonths,
   publicServerError,
   safeRequestBody,
   serializeBillingRequest,
@@ -256,7 +257,7 @@ async function handleBrandAction(req, res, body) {
     const newStatus = String(body.brandStatus || '').toLowerCase();
     const paymentStatus = String(body.paymentStatus || '').toLowerCase();
     const adminNote = String(body.adminNote || '').trim().slice(0, 500);
-    const months = Math.min(Math.max(Number(body.months || 1), 1), 24);
+    const months = normalizeBillingMonths(body.months || 1);
 
     if (!['active', 'pending_review', 'rejected', 'suspended'].includes(newStatus)) {
       return res.status(400).json({ success: false, error: 'Invalid brand status' });
@@ -278,8 +279,7 @@ async function handleBrandAction(req, res, body) {
       const baseDate = website?.paidUntil && new Date(website.paidUntil) > now
         ? new Date(website.paidUntil)
         : now;
-      let paidUntil = baseDate;
-      for (let index = 0; index < months; index += 1) paidUntil = addOneMonth(paidUntil);
+      const paidUntil = addMonths(baseDate, months);
 
       update.paidUntil = paidUntil;
       update.approvedAt = website?.approvedAt || now;
@@ -303,8 +303,10 @@ async function handleBrandAction(req, res, body) {
 
     const billingRequestId = body.billingRequestId || body.requestId;
     if (billingRequestId && ObjectId.isValid(String(billingRequestId))) {
+      const billingRequestObjectId = new ObjectId(billingRequestId);
+      const billingRequest = await db.collection('billing_requests').findOne({ _id: billingRequestObjectId });
       await db.collection('billing_requests').updateOne(
-        { _id: new ObjectId(billingRequestId) },
+        { _id: billingRequestObjectId },
         {
           $set: {
             status: newStatus === 'active' ? 'approved' : newStatus === 'rejected' ? 'rejected' : 'pending_review',
@@ -315,6 +317,28 @@ async function handleBrandAction(req, res, body) {
           }
         }
       );
+
+      if (newStatus === 'active' && billingRequest?.transaction_id) {
+        await db.collection('subscription_renewals').updateOne(
+          { transaction_id: billingRequest.transaction_id },
+          {
+            $set: {
+              clientId: billingRequest.clientId || updatedWebsite.clientId,
+              websiteId,
+              transaction_id: billingRequest.transaction_id,
+              amount: Number(billingRequest.amount || 0),
+              months,
+              source: 'admin_dashboard',
+              type: updatedWebsite.paidUntil ? 'domain_subscription' : 'brand_opening',
+              paidAt: new Date(),
+              paidUntil: update.paidUntil,
+              updatedAt: new Date()
+            },
+            $setOnInsert: { createdAt: new Date() }
+          },
+          { upsert: true }
+        );
+      }
     }
 
     return res.status(200).json({ success: true, website: updatedWebsite });

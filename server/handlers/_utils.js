@@ -1,10 +1,15 @@
 export const MONTHLY_DOMAIN_FEE = 60;
 export const BRAND_OPENING_FEE = Number(process.env.BRAND_OPENING_FEE || MONTHLY_DOMAIN_FEE);
+export const YEARLY_PLAN_MONTHS = 12;
+export const YEARLY_PLAN_BILLABLE_MONTHS = 10;
 export const DEFAULT_ANDROID_APP_DOWNLOAD_PATH = '/gatewayflow-android.apk';
 export const WEBSITE_PLAN_TIERS = [
   { id: 'site-1', name: '1 Website', duration: '1 Month', price: 60, websites: 1 },
   { id: 'site-5', name: '5 Websites', duration: '1 Month', price: 200, websites: 5 },
-  { id: 'site-20', name: '20 Websites', duration: '1 Month', price: 400, websites: 20 }
+  { id: 'site-20', name: '20 Websites', duration: '1 Month', price: 400, websites: 20 },
+  { id: 'site-1-yearly', name: '1 Website', duration: '1 Year', price: 600, websites: 1, months: 12 },
+  { id: 'site-5-yearly', name: '5 Websites', duration: '1 Year', price: 2000, websites: 5, months: 12 },
+  { id: 'site-20-yearly', name: '20 Websites', duration: '1 Year', price: 4000, websites: 20, months: 12 }
 ];
 
 export function computePlanAmount(siteCount) {
@@ -14,6 +19,23 @@ export function computePlanAmount(siteCount) {
   if (n <= 20) return 400;
   // For larger bundles, charge a modest incremental fee per extra site
   return 400 + Math.max(0, n - 20) * 10;
+}
+
+export function normalizeBillingMonths(months) {
+  return Math.min(Math.max(Number(months || 1), 1), 24);
+}
+
+export function computePlanTotalAmount(siteCount, months = 1) {
+  const cleanMonths = normalizeBillingMonths(months);
+  const billableMonths = cleanMonths === YEARLY_PLAN_MONTHS ? YEARLY_PLAN_BILLABLE_MONTHS : cleanMonths;
+  return Number((computePlanAmount(siteCount) * billableMonths).toFixed(2));
+}
+
+export function addMonths(date, months = 1) {
+  const cleanMonths = normalizeBillingMonths(months);
+  let next = new Date(date);
+  for (let index = 0; index < cleanMonths; index += 1) next = addOneMonth(next);
+  return next;
 }
 
 const rateLimitBuckets = new Map();

@@ -12,10 +12,11 @@ import {
   BRAND_OPENING_FEE,
   WEBSITE_PLAN_TIERS,
   cleanString,
-  computePlanAmount,
+  computePlanTotalAmount,
   defaultClientSettings,
   getAndroidAppDownloadUrl,
   isWebsiteActive,
+  normalizeBillingMonths,
   normalizePublicUrl,
   publicServerError,
   serializeClient,
@@ -283,8 +284,8 @@ async function handleBilling(req, res, db, clientId) {
   const websiteId = cleanString(body.websiteId || body.website_id, 80);
   const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId);
   const siteCount = Math.min(Math.max(Number(body.siteCount || 1), 1), 500);
-  const months = Math.min(Math.max(Number(body.months || 1), 1), 24);
-  const expectedAmount = Number((computePlanAmount(siteCount) * months).toFixed(2));
+  const months = normalizeBillingMonths(body.months || 1);
+  const expectedAmount = computePlanTotalAmount(siteCount, months);
   const amount = Number(body.amount || expectedAmount);
 
   if (!ObjectId.isValid(websiteId) || !transactionId) {
@@ -294,7 +295,7 @@ async function handleBilling(req, res, db, clientId) {
   if (amount !== expectedAmount) {
     return res.status(400).json({
       success: false,
-      error: `Submitted amount must equal Tk ${expectedAmount} for ${siteCount} website${siteCount > 1 ? 's' : ''}`
+      error: `Submitted amount must equal Tk ${expectedAmount} for ${siteCount} website${siteCount > 1 ? 's' : ''} and ${months} month${months > 1 ? 's' : ''}`
     });
   }
 
