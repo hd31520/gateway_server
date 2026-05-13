@@ -170,12 +170,11 @@ export default async function handler(req, res) {
   }
 }
 
-async function autoApprovePendingAdminPayment(db, payment, now) {
+export async function autoApprovePendingAdminPayment(db, payment, now) {
   if (!isAdminPayment(payment)) return null;
 
   const request = await db.collection('billing_requests').findOne({
     transaction_id: payment.transaction_id,
-    amount: Number(payment.amount || 0),
     status: { $in: ['pending', 'pending_review'] }
   });
   if (!request || !ObjectId.isValid(String(request.websiteId || '')) || !ObjectId.isValid(String(request.clientId || ''))) {
@@ -188,7 +187,18 @@ async function autoApprovePendingAdminPayment(db, payment, now) {
   const months = normalizeBillingMonths(request.months || 1);
   const siteCount = Math.min(Math.max(Number(request.siteCount || 1), 1), 500);
   const expectedAmount = computePlanTotalAmount(siteCount, months);
-  if (!isSameAmount(payment.amount, expectedAmount)) return null;
+  if (!isSameAmount(payment.amount, expectedAmount)) {
+    await db.collection('billing_requests').updateOne(
+      { _id: request._id },
+      {
+        $set: {
+          adminNote: `Matched TrxID but amount ${Number(payment.amount || 0).toFixed(2)} did not equal expected ${expectedAmount.toFixed(2)} for ${months} month${months > 1 ? 's' : ''}`,
+          updatedAt: now
+        }
+      }
+    );
+    return null;
+  }
 
   const activation = await activateWebsiteFromAdminPayment({
     db,
