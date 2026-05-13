@@ -137,15 +137,29 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
   const pendingItems = await db.collection('merchant_verification_requests')
     .find({
       transaction_id: transactionId,
-      amount,
       status: { $in: ['pending', 'pending_sms', 'pending_review'] }
     })
     .sort({ createdAt: 1 })
     .limit(10)
     .toArray();
 
-  const pending = pendingItems.find((item) => paymentBelongsToClient(payment, item.clientId));
-  if (!pending) return null;
+  const ownedPendingItems = pendingItems.filter((item) => paymentBelongsToClient(payment, item.clientId));
+  const pending = ownedPendingItems.find((item) => Number(item.amount || 0).toFixed(2) === Number(amount).toFixed(2));
+  if (!pending) {
+    const amountMismatch = ownedPendingItems[0];
+    if (amountMismatch) {
+      await db.collection('merchant_verification_requests').updateOne(
+        { _id: amountMismatch._id },
+        {
+          $set: {
+            adminNote: `Matched TrxID but SMS amount ${Number(amount).toFixed(2)} did not equal requested ${Number(amountMismatch.amount || 0).toFixed(2)}`,
+            updatedAt: now
+          }
+        }
+      );
+    }
+    return null;
+  }
 
   const existing = await db.collection('payment_verifications').findOne({ transaction_id: transactionId });
   if (existing) {

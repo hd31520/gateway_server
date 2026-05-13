@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     const body = safeRequestBody(req, res);
     if (body === null) return;
     const apiKey = readApiKey(req);
-    const transactionId = cleanString(body.transaction_id, 120).toUpperCase();
+    const transactionId = cleanString(body.transaction_id || body.transactionId || body.trxId || body.txnId, 120).toUpperCase();
     const amount = normalizeAmount(body.amount);
     const orderId = cleanString(body.order_id || body.orderId, 160);
     const sellerName = cleanString(body.seller_name || body.sellerName, 160);

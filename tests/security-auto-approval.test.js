@@ -241,6 +241,48 @@ test('does not approve merchant verification from admin or already used SMS reco
   assert.equal(db.collection('payment_verifications').items.length, 0);
 });
 
+test('records merchant mismatch note when SMS TrxID matches but amount differs', async () => {
+  const clientId = new ObjectId();
+  const websiteId = new ObjectId();
+  const paymentId = new ObjectId();
+  const requestId = new ObjectId();
+  const now = new Date('2026-05-01T08:00:00.000Z');
+  const db = new MemoryDb({
+    payments: [{
+      _id: paymentId,
+      submittedBy: 'client',
+      submittedByClientId: clientId,
+      transaction_id: 'TRX-MERCHANT-MISMATCH',
+      amount: 490,
+      status: 'received',
+      createdAt: now
+    }],
+    merchant_verification_requests: [{
+      _id: requestId,
+      clientId,
+      websiteId,
+      domain: 'merchant.example',
+      transaction_id: 'TRX-MERCHANT-MISMATCH',
+      amount: 500,
+      order_id: 'ORDER-2',
+      status: 'pending_sms',
+      createdAt: now
+    }],
+    payment_verifications: []
+  });
+
+  const result = await autoApprovePendingMerchantVerification(
+    db,
+    await db.collection('payments').findOne({ _id: paymentId }),
+    now
+  );
+
+  assert.equal(result, null);
+  const request = await db.collection('merchant_verification_requests').findOne({ _id: requestId });
+  assert.match(request.adminNote, /SMS amount 490\.00 did not equal requested 500\.00/);
+  assert.equal(db.collection('payment_verifications').items.length, 0);
+});
+
 class MemoryDb {
   constructor(seed = {}) {
     this.collections = new Map(
