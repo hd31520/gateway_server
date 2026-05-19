@@ -36,6 +36,55 @@ import { safeRequestBody } from '../_utils.js';
 
 const plans = WEBSITE_PLAN_TIERS;
 
+const merchantGuide = {
+  title: 'Merchant integration made easy',
+  subtitle: 'অন্য ডোমেইনের website owner-রা এই ধাপগুলো follow করলে কয়েক মিনিটের মধ্যে GatewayFlow payment popup চালু করতে পারবে.',
+  gatewayUrl: 'https://payment-gateway-server-ten.vercel.app',
+  widgetUrl: 'https://payment-gateway-server-ten.vercel.app/widget.js',
+  steps: [
+    {
+      step: '01',
+      title: 'Portal login করুন',
+      text: 'আপনার merchant account দিয়ে লগইন করুন এবং Developer Docs route open করুন।'
+    },
+    {
+      step: '02',
+      title: 'Website/domain add করুন',
+      text: 'Brands বা Payment Link section থেকে আপনার website domain add করুন, তারপর active status নিশ্চিত করুন।'
+    },
+    {
+      step: '03',
+      title: 'API key copy করুন',
+      text: 'Domain active হলে generated website API key copy করুন এবং server-side রেখে দিন।'
+    },
+    {
+      step: '04',
+      title: 'widget.js include করুন',
+      text: 'আপনার website-এ gateway host থেকে widget.js include করুন এবং window.GATEWAY_WIDGET_URL সেট করুন।'
+    },
+    {
+      step: '05',
+      title: 'Pay button connect করুন',
+      text: 'Button click করলে GatewayWidget.open(...) call করে amount, callback, order id পাঠান।'
+    },
+    {
+      step: '06',
+      title: 'Payment verify করুন',
+      text: 'Popup complete হলে callback বা /api/merchant/verify ব্যবহার করে sender number, amount, আর payment time match করুন।'
+    }
+  ],
+  snippet: [
+    'window.GATEWAY_WIDGET_URL = "https://payment-gateway-server-ten.vercel.app";',
+    '<script src="https://payment-gateway-server-ten.vercel.app/widget.js"></script>',
+    'GatewayWidget.open({ amount: 500, callback: "https://your-site.com/payment-return" })'
+  ],
+  checklist: [
+    'Callback URL অবশ্যই আপনার নিজের domain-এর হতে হবে.',
+    'Customer payment reference দরকার নেই.',
+    'Sender number + amount + payment time একসাথে match হতে হবে.'
+  ]
+};
+
 const docs = [
   {
     title: 'Full developer integration guide',
@@ -196,7 +245,9 @@ async function sendDashboard(res, db, clientId) {
     settings: serializeSettings(settings),
     tickets: tickets.map(serializeTicket),
     plans,
-    docs
+    docs,
+    merchantGuide
+    merchantGuide
   });
 }
 
