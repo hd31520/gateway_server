@@ -457,6 +457,75 @@ export function serializeBillingRequest(request) {
   };
 }
 
+/**
+ * Send SMS via gateway (anoncify or similar)
+ * @param {Object} options - { number, message }
+ */
+export async function sendSmsViaGateway({ number, message }) {
+  try {
+    const smsKey = process.env.SMS_API_KEY;
+    if (!smsKey) {
+      console.warn('SMS_API_KEY not configured');
+      return { success: false, error: 'SMS not configured' };
+    }
+
+    const response = await fetch('https://anoncify.xyz/api/sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        key: smsKey,
+        number: number,
+        msg: message,
+      }),
+    });
+
+    const text = await response.text();
+    const success = response.status === 200 && text.includes('sent');
+
+    if (success) {
+      console.log(`SMS sent to ${number}`);
+      return { success: true };
+    } else {
+      console.error(`SMS failed to ${number}:`, text);
+      return { success: false, error: text };
+    }
+  } catch (error) {
+    console.error('SMS gateway error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send notification to Android app via FCM or custom notification service
+ * @param {Object} options - { title, body, data }
+ */
+export async function sendAndroidNotification({ title, body, data = {} }) {
+  try {
+    // In production, use Firebase Cloud Messaging (FCM) or custom endpoint
+    // For now, this is a placeholder that logs the notification
+    const notification = {
+      title,
+      body,
+      data,
+      timestamp: new Date().toISOString(),
+      sound: 'beep', // Play beep sound on Android
+    };
+
+    // TODO: Integrate with FCM or custom notification service
+    // await fetch('https://your-notification-service.com/notify', {
+    //   method: 'POST',
+    //   headers: { 'Content-Type': 'application/json' },
+    //   body: JSON.stringify(notification),
+    // });
+
+    console.log('Android notification queued:', notification);
+    return { success: true, notification };
+  } catch (error) {
+    console.error('Notification error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 function resolveAllowedOrigin(req) {
   const requestOrigin = cleanString(req?.headers?.origin, 300);
   const configuredOrigins = parseAllowedOrigins();

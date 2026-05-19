@@ -9,6 +9,7 @@ import {
   upsertPendingMerchantVerification,
   unwrapMongoResult
 } from '../_merchant_verification.js';
+import { toObjectId } from '../_billing.js';
 import {
   cleanString,
   isWebsiteActive,
@@ -30,6 +31,10 @@ function readApiKey(req) {
 
 export default async function handler(req, res) {
   if (handleMerchantCors(req, res)) return;
+
+  if (req.method === 'GET') {
+    return handleMerchantStatus(req, res);
+  }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
@@ -357,7 +362,7 @@ function handleMerchantCors(req, res) {
   const origin = cleanString(req.headers.origin, 300);
   res.setHeader('Access-Control-Allow-Origin', origin || '*');
   if (origin) res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
   res.setHeader('Access-Control-Max-Age', '86400');
   if (req.method === 'OPTIONS') {
@@ -365,6 +370,65 @@ function handleMerchantCors(req, res) {
     return true;
   }
   return false;
+}
+
+async function handleMerchantStatus(req, res) {
+  if (!rateLimit(req, res, { key: 'merchant-status-ip', limit: 180, windowMs: 60_000 })) return;
+
+  try {
+    const apiKey = readApiKey(req);
+    if (!apiKey) return res.status(400).json({ success: false, error: 'api_key is required' });
+    if (!rateLimit(req, res, { key: 'merchant-status-key', identity: apiKey, limit: 240, windowMs: 60_000 })) return;
+
+    const url = new URL(req.url || '/api/merchant/verify', `http://${req.headers.host || 'localhost'}`);
+    const requestId = cleanString(url.searchParams.get('request_id') || url.searchParams.get('requestId') || '', 80);
+    const orderId = cleanString(url.searchParams.get('order_id') || url.searchParams.get('orderId') || '', 160);
+    const payerNumber = normalizePayerNumber(url.searchParams.get('payer_number') || url.searchParams.get('payerNumber'));
+    const amount = normalizeAmount(url.searchParams.get('amount'));
+    if (!requestId && (!orderId || !payerNumber || !amount)) {
+      return res.status(400).json({ success: false, error: 'request_id or order_id, payer_number, and amount are required' });
+    }
+
+    const db = await getDb();
+    const website = await db.collection('websites').findOne({
+      $or: [
+        { apiKeyHash: hashApiKey(apiKey) },
+        { apiKey }
+      ]
+    });
+    if (!website) return res.status(401).json({ success: false, error: 'Invalid API key' });
+    if (!requestOriginAllowedForWebsite(req, website)) {
+      return res.status(403).json({ success: false, error: 'Request origin does not match this API key domain' });
+    }
+
+    const query = requestId
+      ? { _id: toObjectId(requestId), websiteId: website._id }
+      : { websiteId: website._id, order_id: orderId || null, payer_number: payerNumber, amount };
+    const pending = await db.collection('merchant_verification_requests').findOne(query);
+    if (!pending) return res.status(404).json({ success: false, error: 'Payment request not found' });
+
+    const verification = pending.verificationId
+      ? await db.collection('payment_verifications').findOne({ _id: pending.verificationId, websiteId: website._id })
+      : null;
+    return res.status(200).json({
+      success: true,
+      status: pending.status || 'pending_sms',
+      requestId: String(pending._id),
+      message: pending.status === 'verified' ? 'Payment confirmed by Android SMS server.' : 'Waiting for matching Android SMS.',
+      verification: verification ? {
+        id: String(verification._id),
+        transaction_id: verification.transaction_id,
+        payment_ref: verification.transaction_id,
+        payer_number: verification.payer_number || '',
+        amount: verification.amount,
+        order_id: verification.order_id || null,
+        verifiedAt: verification.createdAt
+      } : null
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, error: publicServerError(error) });
+  }
 }
 
 function buildReturnUrl(returnUrl, status, transactionId, orderId) {
