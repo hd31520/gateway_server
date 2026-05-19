@@ -13,6 +13,18 @@ export async function initiatePayment(req, res) {
   try {
     const { paymentMethod, senderPhone, receiverPhone, amount } = req.body;
 
+    function normalizePhone(raw) {
+      let s = String(raw || '').trim();
+      s = s.replace(/[^0-9+]/g, '');
+      if (s.startsWith('+880')) s = '0' + s.slice(4);
+      if (s.startsWith('880')) s = '0' + s.slice(3);
+      if (!s.startsWith('0') && s.length === 10 && s.startsWith('1')) s = '0' + s;
+      return s;
+    }
+
+    const normSender = normalizePhone(senderPhone || '');
+    const normReceiver = normalizePhone(receiverPhone || '');
+
     // Validation: require paymentMethod and amount; senderPhone/receiverPhone can be provided later
     if (!paymentMethod || !amount) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -29,8 +41,8 @@ export async function initiatePayment(req, res) {
     const payment = {
       _id: new ObjectId(),
       paymentMethod,
-      senderPhone: senderPhone || '',
-      receiverPhone: receiverPhone || '',
+      senderPhone: normSender,
+      receiverPhone: normReceiver,
       amount,
       status: 'pending',
       createdAt: new Date(),
@@ -47,11 +59,11 @@ export async function initiatePayment(req, res) {
     // Send Android notification with payment details
     await sendAndroidNotification({
       title: `Payment Incoming - ${paymentMethod.toUpperCase()}`,
-      body: `Send ৳${amount} to ${receiverPhone}`,
+      body: `Send ৳${amount} to ${normReceiver}`,
       data: {
         paymentId: payment._id.toString(),
-        senderPhone,
-        receiverPhone,
+        senderPhone: normSender,
+        receiverPhone: normReceiver,
         amount,
         smsCode: payment.smsCode,
       },
@@ -59,8 +71,8 @@ export async function initiatePayment(req, res) {
 
     // Send verification SMS (in production, the SMS contains the code)
     await sendSmsViaGateway({
-      number: senderPhone,
-      message: `Payment Code: ${payment.smsCode}. Send ৳${amount} to ${receiverPhone}. Valid for 2 minutes.`,
+      number: normSender,
+      message: `Payment Code: ${payment.smsCode}. Send ৳${amount} to ${normReceiver}. Valid for 2 minutes.`,
     });
 
     return res.status(200).json({

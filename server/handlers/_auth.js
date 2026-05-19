@@ -116,9 +116,45 @@ export async function requireAdmin(req, res) {
 }
 
 export async function requireClient(req, res) {
+  const token = getBearerToken(req);
+
+  // Accept API keys (pg_live_ or user_) by hash
+  if (token && (token.startsWith('pg_live_') || token.startsWith('user_'))) {
+    try {
+      const db = await getDb();
+      const apiHash = hashApiKey(token);
+      const client = await db.collection('clients').findOne({ apiKeyHash: apiHash });
+      if (client) {
+        return {
+          role: 'client',
+          id: String(client._id),
+          email: client.email || '',
+          userRole: client.role || 'user'
+        };
+      }
+
+      const user = await db.collection('client_users').findOne({ apiKeyHash: apiHash });
+      if (user) {
+        return {
+          role: 'client',
+          id: String(user.clientId),
+          email: user.email || '',
+          userRole: user.role || 'user'
+        };
+      }
+
+      res.status(401).json({ success: false, error: 'Invalid API key' });
+      return null;
+    } catch (err) {
+      console.error('API key auth error:', err);
+      res.status(500).json({ success: false, error: 'Auth error' });
+      return null;
+    }
+  }
+
   let payload;
   try {
-    payload = await verifyAuthToken(getBearerToken(req));
+    payload = await verifyAuthToken(token);
   } catch (err) {
     const status = authErrorStatus(err);
     res.status(status).json({

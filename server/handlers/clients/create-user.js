@@ -1,4 +1,4 @@
-import { requireClient } from '../../_auth.js';
+import { requireClient, hashApiKey } from '../../_auth.js';
 import { getDb } from '../../_db.js';
 import crypto from 'crypto';
 
@@ -17,16 +17,17 @@ export default async function handler(req, res) {
   try {
     const db = getDb();
     const users = db.collection('client_users');
+    const rawKey = `user_${crypto.randomBytes(12).toString('hex')}`;
     const user = {
       clientId: payload.id,
       name,
       email: email || '',
       role,
       createdAt: new Date(),
-      apiKey: `user_${crypto.randomBytes(12).toString('hex')}`
+      apiKeyHash: hashApiKey(rawKey)
     };
     const r = await users.insertOne(user);
-    return res.status(200).json({ success: true, userId: r.insertedId.toString(), apiKey: user.apiKey });
+    return res.status(200).json({ success: true, userId: r.insertedId.toString(), apiKey: rawKey });
   } catch (err) {
     console.error('Create client user error:', err);
     return res.status(500).json({ success: false, error: 'Failed to create client user' });
