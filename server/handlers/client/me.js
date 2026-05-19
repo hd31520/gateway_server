@@ -38,6 +38,14 @@ const plans = WEBSITE_PLAN_TIERS;
 
 const docs = [
   {
+    title: 'Full developer integration guide',
+    method: 'READ',
+    path: '/DEVELOPER_INTEGRATION_GUIDE.md',
+    auth: 'Public guide for merchants',
+    body: ['widget.js', 'callback', 'merchant verify', 'subscription', 'domains'],
+    url: '/DEVELOPER_INTEGRATION_GUIDE.md'
+  },
+  {
     title: 'Admin login and manual brand review',
     method: 'POST/GET/PATCH',
     path: '/api/admin?action=login',
