@@ -154,12 +154,25 @@
               const msg = { type: 'payment_status', paymentId, status: 'verified', transactionId: d.transactionId, amount: d.amount };
               try { window.opener && window.opener.postMessage(msg, '*'); } catch(e){}
               if (callback) {
-                const cb = new URL(callback);
-                cb.searchParams.set('paymentId', paymentId);
-                cb.searchParams.set('status', 'verified');
-                if (d.transactionId) cb.searchParams.set('txn', d.transactionId);
-                location.href = cb.toString();
-              } else {
+                try {
+                  // Validate callback against server allowlist
+                  const cfg = await fetch('/api/config');
+                  if (cfg.ok) {
+                    const json = await cfg.json();
+                    const allowed = json.allowedCallbacks || [];
+                    try {
+                      const cbUrl = new URL(callback);
+                      if (allowed.includes(cbUrl.origin) || allowed.includes(cbUrl.hostname)) {
+                        cbUrl.searchParams.set('paymentId', paymentId);
+                        cbUrl.searchParams.set('status', 'verified');
+                        if (d.transactionId) cbUrl.searchParams.set('txn', d.transactionId);
+                        location.href = cbUrl.toString();
+                        return;
+                      }
+                    } catch (e) { /* invalid callback url */ }
+                  }
+                } catch (e) { /* ignore config errors */ }
+
                 alert('Payment verified — Transaction ID: ' + (d.transactionId || ''));
               }
             } else if (d.status === 'expired' || d.status === 'cancelled') {
