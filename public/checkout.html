@@ -75,31 +75,19 @@
         <button id="tryAgainBtn" type="button">Try Again</button>
       </section>
 
-      <details class="gateway-config-details">
-        <summary>Developer config</summary>
-        <form id="checkoutConfigForm">
-          <label for="gatewayEndpoint">Verify endpoint</label>
-          <input id="gatewayEndpoint" value="/api/merchant/verify" required />
-          <label for="gatewayApiKey">Website API key</label>
-          <input id="gatewayApiKey" placeholder="pg_live_..." required />
-          <label for="gatewayDomain">Website domain</label>
-          <input id="gatewayDomain" placeholder="example.com" required />
-          <label for="orderId">Order ID</label>
-          <input id="orderId" required />
-          <label for="sellerName">Seller name</label>
-          <input id="sellerName" placeholder="Merchant or seller name" />
-          <label for="customerName">Customer name</label>
-          <input id="customerName" placeholder="Customer name" />
-          <label for="paymentAmount">Amount</label>
-          <input id="paymentAmount" type="number" min="1" step="0.01" value="500" required />
-          <label for="returnUrl">Return URL</label>
-          <input id="returnUrl" placeholder="https://shop.example/order-return" />
-          <button type="submit">Save config</button>
-          <p id="configMessage" class="notice"></p>
-        </form>
-      </details>
+      <form id="checkoutConfigForm" class="hidden">
+        <input id="gatewayEndpoint" value="/api/merchant/verify" required />
+        <input id="gatewayApiKey" placeholder="pg_live_..." required />
+        <input id="gatewayDomain" placeholder="example.com" required />
+        <input id="orderId" required />
+        <input id="sellerName" placeholder="Merchant or seller name" />
+        <input id="customerName" placeholder="Customer name" />
+        <input id="paymentAmount" type="number" min="1" step="0.01" value="500" required />
+        <input id="returnUrl" placeholder="https://shop.example/order-return" />
+        <p id="configMessage" class="notice"></p>
+      </form>
 
-      <pre id="checkoutResponse" class="code-block checkout-response"></pre>
+      <pre id="checkoutResponse" class="code-block checkout-response hidden"></pre>
     </section>
   </main>
   <script src="/checkout.js"></script>
