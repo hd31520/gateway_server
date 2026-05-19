@@ -37,51 +37,74 @@ import { safeRequestBody } from '../_utils.js';
 const plans = WEBSITE_PLAN_TIERS;
 
 const merchantGuide = {
-  title: 'Merchant integration made easy',
-  subtitle: 'অন্য ডোমেইনের website owner-রা এই ধাপগুলো follow করলে কয়েক মিনিটের মধ্যে GatewayFlow payment popup চালু করতে পারবে.',
+  title: 'GatewayFlow integration - simple guide',
+  subtitle: 'এই ধাপগুলো follow করলে যেকোনো website-এ GatewayFlow payment popup সহজে চালু করা যাবে। Customer TrxID দেবে না; system sender number, exact amount, আর SMS receive time match করবে।',
   gatewayUrl: 'https://payment-gateway-server-ten.vercel.app',
   widgetUrl: 'https://payment-gateway-server-ten.vercel.app/widget.js',
+  localGatewayUrl: 'http://localhost:3000',
+  localWidgetUrl: 'http://localhost:3000/widget.js',
   steps: [
     {
       step: '01',
-      title: 'Portal login করুন',
-      text: 'আপনার merchant account দিয়ে লগইন করুন এবং Developer Docs route open করুন।'
+      title: 'Brand active করুন',
+      text: 'Portal থেকে Brands/My Plan section-এ আপনার website domain add করুন। Brand active হলে ওই domain-এর API key পাবেন।'
     },
     {
       step: '02',
-      title: 'Website/domain add করুন',
-      text: 'Brands বা Payment Link section থেকে আপনার website domain add করুন, তারপর active status নিশ্চিত করুন।'
+      title: 'API key copy করুন',
+      text: 'Website credentials card থেকে API key copy করুন। এই key widget popup এবং server verify API-তে ব্যবহার হবে।'
     },
     {
       step: '03',
-      title: 'API key copy করুন',
-      text: 'Domain active হলে generated website API key copy করুন এবং server-side রেখে দিন।'
+      title: 'Widget URL বসান',
+      text: 'আপনার website HTML/React layout-এ gateway server-এর widget.js script include করুন। Production URL: https://payment-gateway-server-ten.vercel.app/widget.js'
     },
     {
       step: '04',
-      title: 'widget.js include করুন',
-      text: 'আপনার website-এ gateway host থেকে widget.js include করুন এবং window.GATEWAY_WIDGET_URL সেট করুন।'
+      title: 'Pay button connect করুন',
+      text: 'Button click হলে GatewayWidget.open(...) call করুন। এখানে apiKey, domain, amount, orderId, receiverNumber, paymentMethods পাঠাবেন।'
     },
     {
       step: '05',
-      title: 'Pay button connect করুন',
-      text: 'Button click করলে GatewayWidget.open(...) call করে amount, callback, order id পাঠান।'
+      title: 'Android app চালু রাখুন',
+      text: 'Merchant Android app login করা থাকবে এবং SMS permission enabled থাকবে। SMS এলে app server-এ payer number ও amount পাঠাবে।'
     },
     {
       step: '06',
-      title: 'Payment verify করুন',
-      text: 'Popup complete হলে callback বা /api/merchant/verify ব্যবহার করে sender number, amount, আর payment time match করুন।'
+      title: 'Success/Fail handle করুন',
+      text: 'Matching SMS এলে popup success দেখাবে। ২ মিনিটের মধ্যে SMS না এলে failed দেখাবে। callback URL-এ status পাঠানো হবে।'
     }
   ],
   snippet: [
     'window.GATEWAY_WIDGET_URL = "https://payment-gateway-server-ten.vercel.app";',
     '<script src="https://payment-gateway-server-ten.vercel.app/widget.js"></script>',
-    'GatewayWidget.open({ amount: 500, callback: "https://your-site.com/payment-return" })'
+    'GatewayWidget.open({',
+    '  apiKey: "website_api_key",',
+    '  domain: "your-site.com",',
+    '  amount: 500,',
+    '  orderId: "ORD-1001",',
+    '  paymentMethods: ["bkash", "nagad"],',
+    '  receiverNumber: "017XXXXXXXX",',
+    '  callback: "https://your-site.com/payment-return"',
+    '})'
+  ],
+  verifySnippet: [
+    'POST https://payment-gateway-server-ten.vercel.app/api/merchant/verify',
+    'Header: X-API-Key: website_api_key',
+    '{',
+    '  "domain": "your-site.com",',
+    '  "payer_number": "0179007328",',
+    '  "amount": 500,',
+    '  "order_id": "ORD-1001",',
+    '  "payment_time": "2026-05-20T12:30:00+06:00"',
+    '}'
   ],
   checklist: [
-    'Callback URL অবশ্যই আপনার নিজের domain-এর হতে হবে.',
-    'Customer payment reference দরকার নেই.',
-    'Sender number + amount + payment time একসাথে match হতে হবে.'
+    'Widget URL হবে gateway server-এর URL, merchant website URL না।',
+    'Customer TrxID দেবে না। শুধু sender wallet number দেবে।',
+    'Sender number + exact amount + payment time একসাথে match হতে হবে।',
+    'Android app login এবং SMS permission enabled থাকতে হবে।',
+    'Callback URL আপনার নিজের website/domain-এর হওয়া উচিত।'
   ]
 };
 
@@ -95,11 +118,11 @@ const docs = [
     url: '/DEVELOPER_INTEGRATION_GUIDE.md'
   },
   {
-    title: 'Admin login and manual brand review',
-    method: 'POST/GET/PATCH',
-    path: '/api/admin?action=login',
-    auth: 'Admin email + password / Bearer admin_token',
-    body: ['email', 'password', 'websiteId', 'brandStatus']
+    title: 'Widget popup script',
+    method: 'GET',
+    path: '/widget.js',
+    auth: 'Public script',
+    body: ['apiKey', 'domain', 'amount', 'orderId', 'paymentMethods', 'receiverNumber', 'callback']
   },
   {
     title: 'Android SMS upload',
@@ -114,6 +137,13 @@ const docs = [
     path: '/api/merchant/verify',
     auth: 'X-API-Key: website_api_key',
     body: ['domain', 'payer_number', 'amount', 'order_id', 'payment_time']
+  },
+  {
+    title: 'Poll pending merchant payment',
+    method: 'GET',
+    path: '/api/merchant/verify?request_id=...',
+    auth: 'X-API-Key: website_api_key',
+    body: []
   },
   {
     title: 'Client portal snapshot',
