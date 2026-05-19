@@ -1,31 +1,76 @@
 # GatewayFlow Developer Integration Guide
 
-Live app:
+Live links:
 
-- Dashboard and developer portal: https://gateway-client-rho.vercel.app/
-- Payment gateway server: use your deployed gateway URL for `widget.js`, checkout, and APIs.
+- Merchant portal: https://gateway-client-rho.vercel.app/
+- Portal route map: https://gateway-client-rho.vercel.app/portal
+- Payment gateway server: use your deployed gateway host for `widget.js`, checkout, and APIs.
 
-This guide explains how to connect another website to GatewayFlow, open the popup payment window, verify payments, and manage subscriptions, domains, and users.
+This guide is written for merchants and developers who want to embed GatewayFlow into another website, verify payments automatically, and manage plans, domains, and staff users from the portal.
 
-## 1. Merchant integration at a glance
+## 1. What the flow looks like
 
 1. Your website shows a Pay button.
-2. Clicking the button opens the GatewayFlow popup.
-3. The customer chooses bKash, Nagad, or Rocket and sends money.
-4. Android forwards the payment SMS to the gateway server.
-5. The server verifies the payment and returns a transaction ID.
-6. Your website receives the result through callback, popup message, or server status polling.
+2. The button opens the GatewayFlow popup.
+3. The customer selects bKash, Nagad, Rocket, or another configured wallet.
+4. The Android app forwards the payment SMS to the gateway server.
+5. The gateway server matches sender number, amount, and time.
+6. Your website receives the result through callback, popup completion, or server polling.
 
-## 2. What the merchant site needs
+## 2. What you need before integrating
 
-- Your gateway host URL.
-- A website API key from the dashboard.
+- A GatewayFlow server URL.
+- A website API key from the merchant portal.
 - A callback URL on your own domain.
 - The hosted `widget.js` script from your gateway server.
 
-## 3. Add the popup widget to your website
+## 3. Merchant portal route map
 
-Plain HTML example:
+The client portal uses real routes, so sections can be opened directly and refreshed without losing the selected menu.
+
+### Portal sections
+
+| Section | Route |
+| --- | --- |
+| Dashboard | `/portal` |
+| Add Funds | `/portal/add-funds` |
+| Payment Link | `/portal/payment-link` |
+| Transactions | `/portal/transactions` |
+| Invoice | `/portal/invoice` |
+| Data | `/portal/data` |
+| Brands | `/portal/brands` |
+| Devices | `/portal/devices` |
+| Payment Settings | `/portal/payment-settings` |
+| Others | `/portal/others` |
+| Affiliates | `/portal/affiliates` |
+| Support Tickets | `/portal/support-tickets` |
+| Plans | `/portal/plans` |
+| My Plan | `/portal/my-plan` |
+| Currency | `/portal/currency` |
+| Android App | `/portal/android-app` |
+| Home Page | `/portal/home-page` |
+| SMS List | `/portal/sms-list` |
+| Developer Docs | `/portal/developer-docs` |
+| Our Support | `/portal/our-support` |
+
+### Admin sections
+
+| Section | Route |
+| --- | --- |
+| Overview | `/admin` |
+| Brand Requests | `/admin/brand-requests` |
+| Billing Requests | `/admin/billing-requests` |
+| Merchant Verify | `/admin/merchant-verify` |
+| Payments | `/admin/payments` |
+| History | `/admin/history` |
+| Clients | `/admin/clients` |
+| Devices | `/admin/devices` |
+| Support | `/admin/support` |
+| Settings | `/admin/settings` |
+
+## 4. Add the popup widget to your site
+
+### Plain HTML
 
 ```html
 <script>
@@ -44,15 +89,13 @@ Plain HTML example:
 </button>
 ```
 
-Next.js or React example:
+### Next.js or React
 
 ```env
 NEXT_PUBLIC_PAYMENT_WIDGET_URL=https://your-gateway-domain.com
 ```
 
 ```jsx
-const gatewayUrl = process.env.NEXT_PUBLIC_PAYMENT_WIDGET_URL;
-
 function PayButton() {
   return (
     <button
@@ -70,11 +113,26 @@ function PayButton() {
 }
 ```
 
-## 4. Merchant payment verification API
+### Recommended popup payload
 
-Use this API when your website needs to verify a payment for a specific domain.
+```js
+{
+  amount: 500,
+  callback: 'https://your-merchant-site.com/payment-return',
+  orderId: 'ORD-1001',
+  customerName: 'John Doe',
+  customerPhone: '0179007328',
+  onComplete: (result) => {
+    console.log(result);
+  }
+}
+```
 
-Request:
+## 5. Merchant payment verification API
+
+Use this API when your own server needs to verify a payment for a specific domain.
+
+### Request
 
 ```http
 POST /api/merchant/verify
@@ -82,7 +140,7 @@ X-API-Key: website_api_key
 Content-Type: application/json
 ```
 
-Body:
+### Body
 
 ```json
 {
@@ -94,99 +152,65 @@ Body:
 }
 ```
 
-Rules:
+### Rules
 
 - No customer payment reference is needed.
 - The server matches `payer_number + amount + payment_time`.
 - The request must use the website API key assigned to the domain.
 
-## 5. Dashboard features
+## 6. Common server routes
 
-The client dashboard shows:
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/payment/gateway/initiate` | Start a popup payment session |
+| `POST` | `/api/payment/gateway/verify-sms` | Verify Android SMS payload |
+| `GET` | `/api/payment/gateway/status/:paymentId` | Check payment status |
+| `POST` | `/api/payment/gateway/cancel/:paymentId` | Cancel a pending payment |
+| `POST` | `/api/merchant/verify` | Verify a merchant payment by domain |
+| `GET` | `/api/client/me?view=dashboard` | Load portal dashboard snapshot |
+| `PATCH` | `/api/client/me?resource=settings` | Save client settings |
+| `POST` | `/api/client/me?resource=support` | Create a support ticket |
+| `POST` | `/api/client/websites` | Add a new brand/domain |
+| `POST` | `/api/client/subscription` | Manage client subscription |
+| `POST` | `/api/client/logout` | Log out the merchant session |
+| `POST` | `/api/admin` | Admin login and management actions |
+| `PATCH` | `/api/admin` | Update admin-controlled records |
+| `POST` | `/api/sms` | Android SMS upload/forwarding |
+| `GET` | `/api/apk/download` | Protected Android APK download |
 
-- Admin login and manual brand review
-- Android SMS upload
-- Merchant payment verify
-- Client portal snapshot
-- Client logout
-- Create brand with auto activation
-- Submit admin payment reference
+## 7. Subscription, domain, and user model
 
-## 6. Subscription, domain, and user model
-
-GatewayFlow supports a school or multi-website setup:
+GatewayFlow supports a multi-website setup:
 
 - One client can buy a plan.
-- The approved client can add unlimited domains on an unlimited subscription.
-- Each domain can run payment collection for separate websites.
-- The client admin can create dynamic users for staff, branches, or site operators.
+- Approved clients can add unlimited domains on an unlimited subscription.
+- Each domain can run payment collection for a separate website.
+- Client admins can create staff users for branches, teams, or operators.
 
-Example workflow:
+Suggested workflow:
 
 1. Admin creates or activates the client.
 2. Admin grants download permission and subscription access.
-3. Client adds domains from the dashboard.
+3. Client adds domains from the portal.
 4. Client creates staff users.
 5. Each website uses the popup widget and its API key.
 
-## 7. Dashboard API routes
-
-### Admin login and manual brand review
-
-- Method: `POST/GET/PATCH`
-- Route: `/api/admin?action=login`
-- Auth: admin email/password or bearer admin token
-- Body: `email`, `password`, `websiteId`, `brandStatus`
-
-### Android SMS upload
-
-- Method: `POST`
-- Route: `/api/sms`
-- Auth: bearer client token
-- Body: `payer_number`, `amount`, `received_at`, `sender_name`, `raw_message`, `device_id`
-
-### Merchant payment verify
-
-- Method: `POST`
-- Route: `/api/merchant/verify`
-- Auth: `X-API-Key: website_api_key`
-- Body: `domain`, `payer_number`, `amount`, `order_id`, `payment_time`
-
-### Client portal snapshot
-
-- Method: `GET`
-- Route: `/api/client/me?view=dashboard`
-- Auth: bearer client token
-
-### Client logout
-
-- Method: `POST`
-- Route: `/api/client/logout`
-- Auth: bearer client token
-
-### Create brand with auto activation
-
-- Method: `POST`
-- Route: `/api/client/websites`
-- Auth: bearer client token
-- Body: `name`, `domain`, `walletProvider`, `walletNumber`, `receiverName`, `transaction_id`
-
-### Submit admin payment reference
-
-- Method: `POST`
-- Route: `/api/client/me?resource=billing`
-- Auth: bearer client token
-- Body: `websiteId`, `transaction_id`, `amount`, `months`
-
-## 8. Safety notes
+## 8. Security notes
 
 - Never expose admin credentials in frontend code.
-- Keep API keys in the dashboard or server-side only.
+- Keep API keys server-side or in the dashboard only.
 - Restrict callback URLs to approved domains.
 - Validate amount, phone number, and payment time before accepting a payment.
 - Keep one gateway host URL per environment: development, staging, and production.
 
-## 9. Example merchant page
+## 9. Troubleshooting
+
+- If a popup does not open, confirm `window.GATEWAY_WIDGET_URL` or the script source is set correctly.
+- If verification fails, compare sender number formatting and the exact amount.
+- If a route looks blank after refresh, use the portal route directly, such as `/portal/transactions`.
+- If an APK download is blocked, confirm the client has download permission.
+
+## 10. Example merchant page
 
 ```html
 <script>
