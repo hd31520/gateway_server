@@ -2,7 +2,7 @@ const configKey = 'checkoutGatewayConfig';
 const params = new URLSearchParams(location.search);
 
 const walletMeta = {
-  bkash: { label: 'bKash', tone: 'pink', icon: 'bK', action: 'Payment' },
+  bkash: { label: 'bKash', tone: 'pink', icon: 'bK', action: 'Send Money' },
   nagad: { label: 'Nagad', tone: 'orange', icon: 'Ng', action: 'Payment' },
   rocket: { label: 'Rocket', tone: 'purple', icon: 'Rk', action: 'Send Money' },
   upay: { label: 'Upay', tone: 'yellow', icon: 'Up', action: 'Payment' },
