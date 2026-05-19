@@ -1,0 +1,40 @@
+// widget.js — hosted on gateway server
+// Usage on merchant site:
+// <script src="https://gateway.example.com/widget.js"></script>
+// <button onclick="GatewayWidget.open({amount:500, callback:'https://merchant.example.com/return', onComplete: r=>console.log(r)})">Pay</button>
+
+(function(global){
+  const GATEWAY_ORIGIN = location.origin;
+
+  function open(opts = {}){
+    const amount = opts.amount || 0;
+    const callback = opts.callback || '';
+    const width = opts.width || 520;
+    const height = opts.height || 760;
+    const left = Math.max(0, (screen.width - width) / 2);
+    const top = Math.max(0, (screen.height - height) / 2);
+    const url = new URL('/checkout.html', GATEWAY_ORIGIN);
+    url.searchParams.set('amount', amount);
+    if (callback) url.searchParams.set('callback', callback);
+
+    const popup = window.open(url.toString(), 'GatewayCheckout', `width=${width},height=${height},left=${left},top=${top}`);
+    if (!popup) {
+      opts.onError && opts.onError('popup_blocked');
+      return null;
+    }
+
+    function handleMessage(e){
+      if (e.origin !== GATEWAY_ORIGIN) return;
+      const msg = e.data || {};
+      if (msg.type === 'payment_status'){
+        opts.onComplete && opts.onComplete(msg);
+        window.removeEventListener('message', handleMessage);
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+    return { popup };
+  }
+
+  global.GatewayWidget = { open };
+})(window);

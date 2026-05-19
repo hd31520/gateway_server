@@ -69,6 +69,9 @@
         <label for="buyerName">Buyer name</label>
         <input id="buyerName" placeholder="Customer name" />
 
+        <label for="buyerPhone">Buyer phone (sender)</label>
+        <input id="buyerPhone" placeholder="01XXXXXXXXX" />
+
         <label for="buyerAddress">Buyer address</label>
         <input id="buyerAddress" placeholder="Customer address" />
 
@@ -83,6 +86,7 @@
 
         <button type="submit">Verify Payment</button>
         <p id="paymentMessage" class="notice" aria-live="polite"></p>
+        <button id="startPaymentBtn" type="button" class="button-link tiny-link" style="margin-top:12px;">Start Payment</button>
       </form>
 
       <section class="panel">
@@ -95,5 +99,82 @@
     </section>
   </main>
   <script src="/checkout.js"></script>
+  <script>
+  (function(){
+    const params = new URLSearchParams(location.search);
+    const initialAmount = params.get('amount');
+    const callback = params.get('callback');
+
+    const amountInput = document.getElementById('paymentAmount');
+    if (initialAmount && amountInput) amountInput.value = initialAmount;
+
+    const startBtn = document.getElementById('startPaymentBtn');
+    const buyerPhoneInput = document.getElementById('buyerPhone');
+    const responsePre = document.getElementById('checkoutResponse');
+    const summaryStatus = document.getElementById('summaryStatus');
+
+    let pollInterval = null;
+
+    startBtn.addEventListener('click', async function(){
+      const amount = Number(document.getElementById('paymentAmount').value || 0);
+      const buyerPhone = (buyerPhoneInput.value || '').trim();
+      if (!buyerPhone) {
+        alert('Enter your phone number to receive SMS');
+        return;
+      }
+
+      summaryStatus.textContent = 'Initiating...';
+
+      try {
+        const res = await fetch('/api/payment/gateway/initiate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ paymentMethod: 'bkash', senderPhone: buyerPhone, receiverPhone: '', amount })
+        });
+        const data = await res.json();
+        responsePre.textContent = JSON.stringify(data, null, 2);
+        if (!data.paymentId) {
+          summaryStatus.textContent = 'Failed to initiate';
+          return;
+        }
+
+        summaryStatus.textContent = 'Waiting for verification...';
+        const paymentId = data.paymentId;
+
+        // Poll for status
+        pollInterval = setInterval(async () => {
+          try {
+            const s = await fetch(`/api/payment/gateway/status/${paymentId}`);
+            if (!s.ok) return;
+            const d = await s.json();
+            responsePre.textContent = JSON.stringify(d, null, 2);
+            if (d.status === 'verified') {
+              clearInterval(pollInterval);
+              summaryStatus.textContent = 'Verified';
+              const msg = { type: 'payment_status', paymentId, status: 'verified', transactionId: d.transactionId, amount: d.amount };
+              try { window.opener && window.opener.postMessage(msg, '*'); } catch(e){}
+              if (callback) {
+                const cb = new URL(callback);
+                cb.searchParams.set('paymentId', paymentId);
+                cb.searchParams.set('status', 'verified');
+                if (d.transactionId) cb.searchParams.set('txn', d.transactionId);
+                location.href = cb.toString();
+              } else {
+                alert('Payment verified — Transaction ID: ' + (d.transactionId || ''));
+              }
+            } else if (d.status === 'expired' || d.status === 'cancelled') {
+              clearInterval(pollInterval);
+              summaryStatus.textContent = 'Failed';
+              try { window.opener && window.opener.postMessage({ type:'payment_status', paymentId, status:'failed' }, '*'); } catch(e){}
+            }
+          } catch (e) { console.error(e); }
+        }, 2000);
+      } catch (e) {
+        console.error(e);
+        summaryStatus.textContent = 'Error';
+      }
+    });
+  })();
+  </script>
 </body>
 </html>

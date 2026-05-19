@@ -13,8 +13,8 @@ export async function initiatePayment(req, res) {
   try {
     const { paymentMethod, senderPhone, receiverPhone, amount } = req.body;
 
-    // Validation
-    if (!paymentMethod || !senderPhone || !receiverPhone || !amount) {
+    // Validation: require paymentMethod and amount; senderPhone/receiverPhone can be provided later
+    if (!paymentMethod || !amount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -29,8 +29,8 @@ export async function initiatePayment(req, res) {
     const payment = {
       _id: new ObjectId(),
       paymentMethod,
-      senderPhone,
-      receiverPhone,
+      senderPhone: senderPhone || '',
+      receiverPhone: receiverPhone || '',
       amount,
       status: 'pending',
       createdAt: new Date(),
@@ -124,7 +124,8 @@ export async function verifySms(req, res) {
       });
     }
 
-    // Mark as verified
+    // Create a transaction id and mark as verified
+    const transactionId = new ObjectId().toString();
     await paymentsCollection.updateOne(
       { _id: payment._id },
       {
@@ -133,6 +134,7 @@ export async function verifySms(req, res) {
           smsVerified: true,
           smsText,
           verifiedAt: new Date(),
+          transactionId,
         },
       }
     );
@@ -146,6 +148,7 @@ export async function verifySms(req, res) {
       success: true,
       message: 'Payment verified successfully',
       paymentId,
+      transactionId,
     });
   } catch (error) {
     console.error('Error verifying SMS:', error);
