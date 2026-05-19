@@ -3,7 +3,9 @@ import { getDb } from '../_db.js';
 import { generateApiKey, hashApiKey, requireClient } from '../_auth.js';
 import {
   activateWebsiteFromAdminPayment,
+  normalizePayerNumber,
   normalizeTransactionId,
+  paymentTimeWindow,
   upsertBillingRequest
 } from '../_billing.js';
 import {
@@ -42,6 +44,9 @@ export default async function handler(req, res) {
       const walletNumber = normalizeWalletNumber(body.walletNumber || body.receiverNumber);
       const receiverName = cleanString(body.receiverName, 120) || name;
       const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId || body.adminTransactionId);
+      const payerNumber = normalizePayerNumber(body.payer_number || body.payerNumber || body.senderNumber || body.customerPhone);
+      const paymentStartedAt = normalizePaymentTime(body.payment_time || body.paymentTime) || new Date();
+      const paymentWindow = paymentTimeWindow(paymentStartedAt);
       const allowedProviders = ['bkash', 'nagad', 'rocket', 'upay', 'bank', 'other'];
 
       if (!domain) {
@@ -59,7 +64,7 @@ export default async function handler(req, res) {
       if (transactionId) {
         const existingRequest = await db.collection('billing_requests').findOne({ transaction_id: transactionId });
         if (existingRequest && String(existingRequest.clientId) !== String(clientId)) {
-          return res.status(409).json({ success: false, error: 'This transaction ID is already submitted by another account' });
+          return res.status(409).json({ success: false, error: 'This payment reference is already submitted by another account' });
         }
       }
 
@@ -88,50 +93,56 @@ export default async function handler(req, res) {
       const result = await db.collection('websites').insertOne(website);
       website._id = result.insertedId;
 
-      if (transactionId) {
-        const activation = await activateWebsiteFromAdminPayment({
+      const activation = payerNumber || transactionId ? await activateWebsiteFromAdminPayment({
+        db,
+        website,
+        websiteId: website._id,
+        clientId,
+        transactionId,
+        payerNumber,
+        paymentStartedAt: paymentWindow.startedAt,
+        amount: BRAND_OPENING_FEE,
+        months: 1,
+        purpose: 'brand_opening'
+      }) : null;
+
+      if (activation) {
+        const billingRequest = await upsertBillingRequest({
           db,
-          website,
-          websiteId: website._id,
           clientId,
+          websiteId: website._id,
+          domain,
           transactionId,
+          payerNumber,
+          paymentStartedAt: paymentWindow.startedAt,
           amount: BRAND_OPENING_FEE,
           months: 1,
-          purpose: 'brand_opening'
+          status: 'approved',
+          note: 'Brand opening payment submitted during brand creation',
+          adminNote: 'Auto approved after matching admin SMS payment',
+          paymentId: activation.payment?._id,
+          autoApproved: true,
+          now
         });
 
-        if (activation) {
-          const billingRequest = await upsertBillingRequest({
-            db,
-            clientId,
-            websiteId: website._id,
-            domain,
-            transactionId,
-            amount: BRAND_OPENING_FEE,
-            months: 1,
-            status: 'approved',
-            note: 'Brand opening payment submitted during brand creation',
-            adminNote: 'Auto approved after matching admin SMS payment',
-            paymentId: activation.payment?._id,
-            autoApproved: true,
-            now
-          });
+        return res.status(201).json({
+          success: true,
+          autoApproved: true,
+          message: 'Admin SMS payment matched. Brand opened automatically and API key is ready.',
+          website: serializeWebsite(activation.website),
+          billingRequest
+        });
+      }
 
-          return res.status(201).json({
-            success: true,
-            autoApproved: true,
-            message: 'Admin SMS payment matched. Brand opened automatically and API key is ready.',
-            website: serializeWebsite(activation.website),
-            billingRequest
-          });
-        }
-
+      if (payerNumber || transactionId) {
         await upsertBillingRequest({
           db,
           clientId,
           websiteId: website._id,
           domain,
           transactionId,
+          payerNumber,
+          paymentStartedAt: paymentWindow.startedAt,
           amount: BRAND_OPENING_FEE,
           months: 1,
           status: 'pending_review',
@@ -142,7 +153,7 @@ export default async function handler(req, res) {
 
         website.brandStatus = 'pending_review';
         website.paymentStatus = 'pending_review';
-        website.adminNote = 'Payment TrxID submitted, but no matching admin SMS was found yet.';
+        website.adminNote = 'Payment submitted, but no matching admin SMS was found yet.';
         website.updatedAt = now;
 
         await db.collection('websites').updateOne(
@@ -160,7 +171,7 @@ export default async function handler(req, res) {
         return res.status(201).json({
           success: true,
           autoApproved: false,
-          message: 'Brand request saved. It will auto-approve when the matching admin SMS TrxID is recorded.',
+          message: 'Brand request saved. It will auto-approve when matching admin SMS is recorded.',
           website: serializeWebsite(website)
         });
       }
@@ -168,7 +179,7 @@ export default async function handler(req, res) {
       return res.status(201).json({
         success: true,
         autoApproved: false,
-        message: 'Brand request saved. Submit the admin payment TrxID and it will auto-approve when the SMS matches.',
+        message: 'Brand request saved. Submit the sender number used for gateway payment and it will auto-approve when SMS matches.',
         website: serializeWebsite(website)
       });
     }
@@ -181,4 +192,10 @@ export default async function handler(req, res) {
     console.error(error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
   }
+}
+
+function normalizePaymentTime(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

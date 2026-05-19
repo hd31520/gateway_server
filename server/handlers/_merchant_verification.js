@@ -3,6 +3,9 @@ import { cleanString, normalizeAmount, serializeMerchantVerification } from './_
 
 export { unwrapMongoResult };
 
+const PAYMENT_LOOKBACK_MS = 5 * 60 * 1000;
+const PAYMENT_WINDOW_MS = 30 * 60 * 1000;
+
 export async function createMerchantVerification(db, data = {}) {
   const now = new Date();
   const doc = {
@@ -80,6 +83,8 @@ export async function upsertPendingMerchantVerification(options = {}) {
     website,
     transactionId,
     amount,
+    payerNumber = '',
+    paymentStartedAt = null,
     orderId = '',
     sellerName = '',
     buyerName = '',
@@ -93,14 +98,17 @@ export async function upsertPendingMerchantVerification(options = {}) {
   const clientId = toObjectId(website?.clientId);
   const cleanTransactionId = normalizeMerchantTransactionId(transactionId);
   const cleanAmount = normalizeAmount(amount);
+  const cleanPayerNumber = normalizePayerNumber(payerNumber);
+  const startedAt = normalizeDate(paymentStartedAt) || now;
+  const expiresAt = new Date(startedAt.getTime() + PAYMENT_WINDOW_MS);
 
-  if (!db || !websiteId || !clientId || !cleanTransactionId || !cleanAmount) return null;
+  if (!db || !websiteId || !clientId || !cleanAmount || (!cleanTransactionId && !cleanPayerNumber)) return null;
 
   const request = {
     clientId,
     websiteId,
     domain: cleanString(website.domain, 180),
-    transaction_id: cleanTransactionId,
+    payer_number: cleanPayerNumber,
     amount: cleanAmount,
     order_id: cleanString(orderId, 160) || null,
     sellerName: cleanString(sellerName, 160),
@@ -109,11 +117,17 @@ export async function upsertPendingMerchantVerification(options = {}) {
     callbackUrl: cleanString(callbackUrl, 500),
     returnUrl: cleanString(returnUrl, 500),
     status: 'pending_sms',
+    paymentStartedAt: startedAt,
+    expiresAt,
     updatedAt: now
   };
+  if (cleanTransactionId) request.transaction_id = cleanTransactionId;
+
+  const matchKey = cleanTransactionId || buildPendingMatchKey(websiteId, orderId, cleanPayerNumber, cleanAmount, startedAt);
+  request.match_key = matchKey;
 
   const result = await db.collection('merchant_verification_requests').findOneAndUpdate(
-    { transaction_id: cleanTransactionId },
+    cleanTransactionId ? { transaction_id: cleanTransactionId } : { match_key: matchKey },
     {
       $set: request,
       $setOnInsert: {
@@ -125,34 +139,41 @@ export async function upsertPendingMerchantVerification(options = {}) {
   );
 
   return unwrapMongoResult(result)
-    || await db.collection('merchant_verification_requests').findOne({ transaction_id: cleanTransactionId });
+    || await db.collection('merchant_verification_requests').findOne(cleanTransactionId ? { transaction_id: cleanTransactionId } : { match_key: matchKey });
 }
 
 export async function autoApprovePendingMerchantVerification(db, payment, now = new Date()) {
   const transactionId = normalizeMerchantTransactionId(payment?.transaction_id);
+  const reliableTransactionId = transactionId && !transactionId.startsWith('AUTO-') ? transactionId : '';
   const amount = normalizeAmount(payment?.amount);
-  if (!db || !payment || !transactionId || !amount) return null;
+  const payerNumber = normalizePayerNumber(payment?.payer_number);
+  if (!db || !payment || !amount || (!reliableTransactionId && !payerNumber)) return null;
   if (!paymentIsUnused(payment)) return null;
 
+  const query = {
+    status: { $in: ['pending', 'pending_sms', 'pending_review'] }
+  };
+  if (reliableTransactionId) {
+    query.transaction_id = reliableTransactionId;
+  } else {
+    query.amount = amount;
+  }
   const pendingItems = await db.collection('merchant_verification_requests')
-    .find({
-      transaction_id: transactionId,
-      status: { $in: ['pending', 'pending_sms', 'pending_review'] }
-    })
+    .find(query)
     .sort({ createdAt: 1 })
-    .limit(10)
+    .limit(50)
     .toArray();
 
   const ownedPendingItems = pendingItems.filter((item) => paymentBelongsToClient(payment, item.clientId));
-  const pending = ownedPendingItems.find((item) => Number(item.amount || 0).toFixed(2) === Number(amount).toFixed(2));
+  const pending = ownedPendingItems.find((item) => pendingMatchesPayment(item, payment, { amount, payerNumber, transactionId: reliableTransactionId, now }));
   if (!pending) {
-    const amountMismatch = ownedPendingItems[0];
+    const amountMismatch = reliableTransactionId ? ownedPendingItems[0] : null;
     if (amountMismatch) {
       await db.collection('merchant_verification_requests').updateOne(
         { _id: amountMismatch._id },
         {
           $set: {
-            adminNote: `Matched TrxID but SMS amount ${Number(amount).toFixed(2)} did not equal requested ${Number(amountMismatch.amount || 0).toFixed(2)}`,
+            adminNote: `Matched payment reference but SMS amount ${Number(amount).toFixed(2)} did not equal requested ${Number(amountMismatch.amount || 0).toFixed(2)}`,
             updatedAt: now
           }
         }
@@ -161,14 +182,16 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
     return null;
   }
 
-  const existing = await db.collection('payment_verifications').findOne({ transaction_id: transactionId });
+  const verificationTransactionId = reliableTransactionId || transactionId;
+  const existing = await db.collection('payment_verifications').findOne({ transaction_id: verificationTransactionId });
   if (existing) {
     await markMerchantRequestVerified(db, pending, existing, now);
     return {
       status: 'already_verified',
       requestId: String(pending._id),
       verificationId: String(existing._id),
-      transaction_id: transactionId,
+      transaction_id: verificationTransactionId,
+      payer_number: payerNumber,
       amount
     };
   }
@@ -179,7 +202,8 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
   const claimedPayment = await claimPaymentForMerchant(db, {
     paymentId,
     pending,
-    transactionId,
+    transactionId: reliableTransactionId,
+    payerNumber,
     amount,
     now
   });
@@ -190,7 +214,8 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
     websiteId: pending.websiteId,
     domain: pending.domain || '',
     paymentId: claimedPayment._id,
-    transaction_id: transactionId,
+    transaction_id: verificationTransactionId,
+    payer_number: payerNumber,
     amount,
     order_id: pending.order_id || null,
     sellerName: pending.sellerName || '',
@@ -213,17 +238,21 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
     verificationId: String(verification._id),
     websiteId: String(pending.websiteId),
     domain: pending.domain || '',
-    transaction_id: transactionId,
+    transaction_id: verificationTransactionId,
+    payer_number: payerNumber,
     amount
   };
 }
 
-async function claimPaymentForMerchant(db, { paymentId, pending, transactionId, amount, now }) {
+async function claimPaymentForMerchant(db, { paymentId, pending, transactionId, payerNumber, amount, now }) {
+  const identityFilter = transactionId
+    ? { transaction_id: transactionId, amount, status: { $ne: 'rejected' } }
+    : { payer_number: payerNumber, amount, status: { $ne: 'rejected' } };
   const result = await db.collection('payments').findOneAndUpdate(
     {
       $and: [
         { _id: paymentId },
-        { transaction_id: transactionId, amount, status: { $ne: 'rejected' } },
+        identityFilter,
         clientSmsPaymentFilter(pending.clientId),
         unusedPaymentFilter()
       ]
@@ -296,4 +325,44 @@ function objectIdValues(value) {
 
 function normalizeMerchantTransactionId(value) {
   return cleanString(value, 120).toUpperCase();
+}
+
+export function normalizePayerNumber(value) {
+  return cleanString(value, 120).replace(/\D/g, '');
+}
+
+export function paymentTimeWindow(now = new Date()) {
+  return {
+    startedAt: new Date(now.getTime() - PAYMENT_LOOKBACK_MS),
+    expiresAt: new Date(now.getTime() + PAYMENT_WINDOW_MS)
+  };
+}
+
+export function pendingMatchesPayment(pending, payment, { amount, payerNumber, transactionId, now = new Date() } = {}) {
+  if (Number(pending?.amount || 0).toFixed(2) !== Number(amount || payment?.amount || 0).toFixed(2)) return false;
+  if (transactionId && normalizeMerchantTransactionId(pending?.transaction_id) === transactionId) return true;
+  const cleanPendingPayer = normalizePayerNumber(pending?.payer_number);
+  const cleanPaymentPayer = normalizePayerNumber(payerNumber || payment?.payer_number);
+  if (!cleanPendingPayer || !cleanPaymentPayer || cleanPendingPayer !== cleanPaymentPayer) return false;
+
+  const paidAt = normalizeDate(payment?.receivedAt || payment?.createdAt) || now;
+  const startedAt = normalizeDate(pending?.paymentStartedAt || pending?.createdAt) || now;
+  const expiresAt = normalizeDate(pending?.expiresAt) || new Date(startedAt.getTime() + PAYMENT_WINDOW_MS);
+  return paidAt.getTime() >= startedAt.getTime() - PAYMENT_LOOKBACK_MS && paidAt.getTime() <= expiresAt.getTime();
+}
+
+function buildPendingMatchKey(websiteId, orderId, payerNumber, amount, startedAt) {
+  return [
+    String(websiteId),
+    cleanString(orderId, 160) || 'no-order',
+    payerNumber,
+    Number(amount || 0).toFixed(2),
+    Math.floor(startedAt.getTime() / 1000)
+  ].join(':');
+}
+
+function normalizeDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

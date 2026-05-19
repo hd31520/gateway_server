@@ -1,8 +1,10 @@
+import { createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import { getDb } from './_db.js';
 import { requireSmsSubmitter } from './_auth.js';
 import {
   activateWebsiteFromAdminPayment,
+  billingRequestMatchesPayment,
   upsertBillingRequest
 } from './_billing.js';
 import { autoApprovePendingMerchantVerification } from './_merchant_verification.js';
@@ -34,6 +36,21 @@ function isSameAmount(left, right) {
   return Number(left || 0).toFixed(2) === Number(right || 0).toFixed(2);
 }
 
+function normalizePhoneLike(value) {
+  return cleanString(value, 120).replace(/\D/g, '');
+}
+
+function buildFallbackTransactionId({ payerNumber, amount, receivedAt, body }) {
+  const raw = cleanString(firstValue(body.raw_message, body.rawMessage, body.message, body.smsBody), 1000);
+  const stamp = (receivedAt || new Date()).toISOString();
+  const digest = createHash('sha256')
+    .update(`${payerNumber}|${Number(amount || 0).toFixed(2)}|${stamp}|${raw}`)
+    .digest('hex')
+    .slice(0, 18)
+    .toUpperCase();
+  return `AUTO-${digest}`;
+}
+
 function belongsToSubmitter(payment, submitter) {
   if (!payment) return false;
   if (submitter.role === 'admin') {
@@ -60,15 +77,18 @@ export default async function handler(req, res) {
   try {
     const body = safeRequestBody(req, res);
     if (body === null) return;
-    const transactionId = cleanString(
+    let transactionId = cleanString(
       firstValue(body.transaction_id, body.transactionId, body.transactionNumber, body.trxId, body.txnId),
       120
     ).toUpperCase();
     const amount = normalizeAmount(firstValue(body.amount, body.receivedTk, body.received_tk));
+    const receivedAt = normalizeReceivedAt(firstValue(body.received_at, body.receivedAt));
+    const payerNumber = normalizePhoneLike(firstValue(body.payer_number, body.payerNumber, body.customerNumber, body.fromNumber, body.senderNumber));
 
-    if (!transactionId || !amount) {
-      return res.status(400).json({ success: false, error: 'transaction_id and valid amount are required' });
+    if (!amount || (!transactionId && !payerNumber)) {
+      return res.status(400).json({ success: false, error: 'valid amount and transaction_id or payer_number are required' });
     }
+    if (!transactionId) transactionId = buildFallbackTransactionId({ payerNumber, amount, receivedAt, body });
 
     const db = await getDb();
     const now = new Date();
@@ -79,7 +99,7 @@ export default async function handler(req, res) {
       if (!belongsToSubmitter(existing, submitter)) {
         return res.status(409).json({
           success: false,
-          error: 'This transaction ID is already stored under another account'
+          error: 'This payment reference is already stored under another account'
         });
       }
 
@@ -108,12 +128,11 @@ export default async function handler(req, res) {
       });
     }
 
-    const receivedAt = normalizeReceivedAt(firstValue(body.received_at, body.receivedAt));
     const payment = {
       sender: cleanString(firstValue(body.sender_name, body.senderName, body.selectedSenderName, body.provider, body.sender), 120) || 'unknown',
       provider: cleanString(body.provider, 60),
       source_number: cleanString(firstValue(body.source_number, body.sourceNumber, body.senderNumber, body.smsSender, body.selectedSender, body.sender), 120),
-      payer_number: cleanString(firstValue(body.payer_number, body.payerNumber, body.customerNumber, body.fromNumber), 120),
+      payer_number: payerNumber,
       transaction_id: transactionId,
       amount,
       raw_message: cleanString(firstValue(body.raw_message, body.rawMessage, body.message, body.smsBody), 3000),
@@ -173,10 +192,20 @@ export default async function handler(req, res) {
 export async function autoApprovePendingAdminPayment(db, payment, now) {
   if (!isAdminPayment(payment)) return null;
 
-  const request = await db.collection('billing_requests').findOne({
-    transaction_id: payment.transaction_id,
-    status: { $in: ['pending', 'pending_review'] }
-  });
+  const paymentTransactionId = cleanString(payment.transaction_id, 120).toUpperCase();
+  const reliableTransactionId = paymentTransactionId && !paymentTransactionId.startsWith('AUTO-') ? paymentTransactionId : '';
+  const query = { status: { $in: ['pending', 'pending_review'] } };
+  if (reliableTransactionId) query.transaction_id = reliableTransactionId;
+  else query.amount = normalizeAmount(payment.amount);
+
+  const requests = await db.collection('billing_requests')
+    .find(query)
+    .sort({ createdAt: 1 })
+    .limit(50)
+    .toArray();
+  const request = reliableTransactionId
+    ? requests[0]
+    : requests.find((item) => billingRequestMatchesPayment(item, payment, now));
   if (!request || !ObjectId.isValid(String(request.websiteId || '')) || !ObjectId.isValid(String(request.clientId || ''))) {
     return null;
   }
@@ -192,7 +221,7 @@ export async function autoApprovePendingAdminPayment(db, payment, now) {
       { _id: request._id },
       {
         $set: {
-          adminNote: `Matched TrxID but amount ${Number(payment.amount || 0).toFixed(2)} did not equal expected ${expectedAmount.toFixed(2)} for ${months} month${months > 1 ? 's' : ''}`,
+          adminNote: `Matched payment but amount ${Number(payment.amount || 0).toFixed(2)} did not equal expected ${expectedAmount.toFixed(2)} for ${months} month${months > 1 ? 's' : ''}`,
           updatedAt: now
         }
       }
@@ -205,7 +234,9 @@ export async function autoApprovePendingAdminPayment(db, payment, now) {
     website,
     websiteId: request.websiteId,
     clientId: request.clientId,
-    transactionId: payment.transaction_id,
+    transactionId: reliableTransactionId || '',
+    payerNumber: request.payer_number || payment.payer_number || '',
+    paymentStartedAt: request.paymentStartedAt || request.createdAt,
     amount: payment.amount,
     months,
     purpose: website.paidUntil ? 'domain_subscription' : 'brand_opening',
@@ -218,7 +249,9 @@ export async function autoApprovePendingAdminPayment(db, payment, now) {
     clientId: request.clientId,
     websiteId: request.websiteId,
     domain: request.domain || website.domain,
-    transactionId: payment.transaction_id,
+    transactionId: reliableTransactionId || '',
+    payerNumber: request.payer_number || payment.payer_number || '',
+    paymentStartedAt: request.paymentStartedAt || request.createdAt,
     amount: payment.amount,
     months,
     siteCount,
@@ -233,7 +266,8 @@ export async function autoApprovePendingAdminPayment(db, payment, now) {
   return {
     websiteId: String(request.websiteId),
     domain: request.domain || website.domain,
-    transaction_id: payment.transaction_id,
+    transaction_id: reliableTransactionId || payment.transaction_id,
+    payer_number: request.payer_number || payment.payer_number || '',
     amount: Number(payment.amount || 0),
     status: 'approved'
   };

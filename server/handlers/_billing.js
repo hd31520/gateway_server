@@ -8,6 +8,8 @@ import {
 } from './_utils.js';
 
 const AUTO_APPROVAL_NOTE = 'Auto approved after matching admin SMS payment';
+const PAYMENT_LOOKBACK_MS = 5 * 60 * 1000;
+const PAYMENT_WINDOW_MS = 30 * 60 * 1000;
 
 export function normalizeTransactionId(value) {
   return cleanString(value, 120).toUpperCase();
@@ -39,6 +41,8 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
     websiteId,
     clientId,
     transactionId,
+    payerNumber,
+    paymentStartedAt,
     amount = BRAND_OPENING_FEE,
     months = 1,
     purpose = 'brand_opening',
@@ -47,25 +51,28 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
   } = options;
 
   const cleanTransactionId = normalizeTransactionId(transactionId);
+  const cleanPayerNumber = normalizePayerNumber(payerNumber);
   const cleanAmount = normalizeAmount(amount);
   const cleanMonths = normalizeBillingMonths(months);
   const websiteObjectId = toObjectId(websiteId || website?._id);
   const clientObjectId = toObjectId(clientId || website?.clientId);
 
-  if (!db || !websiteObjectId || !clientObjectId || !cleanTransactionId || !cleanAmount) {
+  if (!db || !websiteObjectId || !clientObjectId || !cleanAmount || (!cleanTransactionId && !cleanPayerNumber)) {
     return null;
   }
 
   const currentWebsite = website || await db.collection('websites').findOne({ _id: websiteObjectId, clientId: clientObjectId });
   if (!currentWebsite) return null;
 
-  const existingAppliedPayment = await db.collection('payments').findOne({
-    transaction_id: cleanTransactionId,
+  const existingAppliedQuery = {
     amount: cleanAmount,
     websiteId: websiteObjectId,
     clientId: clientObjectId,
     usedFor: { $in: ['brand_opening', 'domain_subscription'] }
-  });
+  };
+  if (cleanTransactionId) existingAppliedQuery.transaction_id = cleanTransactionId;
+  else existingAppliedQuery.payer_number = cleanPayerNumber;
+  const existingAppliedPayment = await db.collection('payments').findOne(existingAppliedQuery);
 
   if (existingAppliedPayment) {
     return {
@@ -76,30 +83,20 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
     };
   }
 
-  const paymentResult = await db.collection('payments').findOneAndUpdate(
-    {
-      $and: [
-        { transaction_id: cleanTransactionId, amount: cleanAmount, status: { $ne: 'rejected' } },
-        adminPaymentRecordFilter(),
-        unusedPaymentFilter()
-      ]
-    },
-    {
-      $set: {
-        status: 'verified',
-        usedFor: purpose,
-        usedBy: websiteObjectId,
-        websiteId: websiteObjectId,
-        clientId: clientObjectId,
-        verifiedAt: now,
-        updatedAt: now
-      }
-    },
-    { returnDocument: 'after' }
-  );
-  const payment = unwrapMongoResult(paymentResult);
+  const payment = await claimAdminPayment(db, {
+    transactionId: cleanTransactionId,
+    payerNumber: cleanPayerNumber,
+    amount: cleanAmount,
+    paymentStartedAt,
+    websiteObjectId,
+    clientObjectId,
+    purpose,
+    now
+  });
 
   if (!payment) return null;
+
+  const paymentReference = cleanTransactionId || payment.transaction_id;
 
   const baseDate = currentWebsite.paidUntil && new Date(currentWebsite.paidUntil) > now
     ? new Date(currentWebsite.paidUntil)
@@ -114,7 +111,8 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
     approvedAt: currentWebsite.approvedAt || now,
     autoApprovedAt: now,
     autoApprovedBy: 'admin_sms',
-    adminPaymentTransactionId: cleanTransactionId,
+    adminPaymentTransactionId: paymentReference,
+    adminPaymentPayerNumber: cleanPayerNumber || payment.payer_number || '',
     adminNote,
     monthlyFee: currentWebsite.monthlyFee || BRAND_OPENING_FEE,
     updatedAt: now
@@ -122,20 +120,26 @@ export async function activateWebsiteFromAdminPayment(options = {}) {
 
   const websiteResult = await db.collection('websites').findOneAndUpdate(
     { _id: websiteObjectId, clientId: clientObjectId },
-    { $set: websiteUpdate },
+    {
+      $set: {
+        ...websiteUpdate,
+        updatedAt: now
+      }
+    },
     { returnDocument: 'after' }
   );
   const updatedWebsite = unwrapMongoResult(websiteResult)
     || await db.collection('websites').findOne({ _id: websiteObjectId, clientId: clientObjectId });
 
   await db.collection('subscription_renewals').updateOne(
-    { transaction_id: cleanTransactionId },
+    { transaction_id: paymentReference },
     {
       $set: {
         clientId: clientObjectId,
         websiteId: websiteObjectId,
         paymentId: payment._id,
-        transaction_id: cleanTransactionId,
+        transaction_id: paymentReference,
+        payer_number: cleanPayerNumber || payment.payer_number || '',
         amount: cleanAmount,
         months: cleanMonths,
         source: 'admin_sms',
@@ -164,6 +168,8 @@ export async function upsertBillingRequest(options = {}) {
     websiteId,
     domain,
     transactionId,
+    payerNumber,
+    paymentStartedAt,
     amount = BRAND_OPENING_FEE,
     months = 1,
     siteCount = 1,
@@ -176,19 +182,27 @@ export async function upsertBillingRequest(options = {}) {
   } = options;
 
   const cleanTransactionId = normalizeTransactionId(transactionId);
+  const cleanPayerNumber = normalizePayerNumber(payerNumber);
   const clientObjectId = toObjectId(clientId);
   const websiteObjectId = toObjectId(websiteId);
   const cleanAmount = normalizeAmount(amount);
+  const startedAt = normalizeDate(paymentStartedAt) || now;
+  const expiresAt = new Date(startedAt.getTime() + PAYMENT_WINDOW_MS);
 
-  if (!db || !clientObjectId || !websiteObjectId || !cleanTransactionId || !cleanAmount) {
+  if (!db || !clientObjectId || !websiteObjectId || !cleanAmount || (!cleanTransactionId && !cleanPayerNumber)) {
     return null;
   }
+
+  const matchKey = cleanTransactionId || buildBillingMatchKey(websiteObjectId, cleanPayerNumber, cleanAmount, startedAt);
+  const paymentReference = cleanTransactionId || `PAY-${String(matchKey).split(':').slice(-3).join('-').replace(/[^a-z0-9-]/gi, '').toUpperCase()}`;
 
   const request = {
     clientId: clientObjectId,
     websiteId: websiteObjectId,
     domain: cleanString(domain, 180),
-    transaction_id: cleanTransactionId,
+    transaction_id: paymentReference,
+    payer_number: cleanPayerNumber,
+    match_key: matchKey,
     amount: cleanAmount,
     months: normalizeBillingMonths(months),
     siteCount: Math.min(Math.max(Number(siteCount || 1), 1), 500),
@@ -196,6 +210,8 @@ export async function upsertBillingRequest(options = {}) {
     note,
     adminNote,
     autoApproved,
+    paymentStartedAt: startedAt,
+    expiresAt,
     updatedAt: now
   };
 
@@ -205,8 +221,22 @@ export async function upsertBillingRequest(options = {}) {
     request.reviewedBy = 'admin_sms';
   }
 
+  const findQuery = cleanTransactionId
+    ? { $or: [{ match_key: matchKey }, { transaction_id: cleanTransactionId }] }
+    : {
+        $or: [
+          { match_key: matchKey },
+          {
+            websiteId: websiteObjectId,
+            payer_number: cleanPayerNumber,
+            amount: cleanAmount,
+            status: { $in: ['pending', 'pending_review', 'approved'] }
+          }
+        ]
+      };
+
   const result = await db.collection('billing_requests').findOneAndUpdate(
-    { transaction_id: cleanTransactionId },
+    findQuery,
     {
       $set: request,
       $setOnInsert: {
@@ -218,7 +248,96 @@ export async function upsertBillingRequest(options = {}) {
   );
 
   return unwrapMongoResult(result)
-    || await db.collection('billing_requests').findOne({ transaction_id: cleanTransactionId });
+    || await db.collection('billing_requests').findOne(findQuery);
+}
+
+export function normalizePayerNumber(value) {
+  return cleanString(value, 120).replace(/\D/g, '');
+}
+
+export function paymentTimeWindow(now = new Date()) {
+  return {
+    startedAt: new Date(now.getTime() - PAYMENT_LOOKBACK_MS),
+    expiresAt: new Date(now.getTime() + PAYMENT_WINDOW_MS)
+  };
+}
+
+export function billingRequestMatchesPayment(request, payment, now = new Date()) {
+  if (!request || !payment) return false;
+  const requestAmount = normalizeAmount(request.amount);
+  const paymentAmount = normalizeAmount(payment.amount);
+  if (!requestAmount || !paymentAmount || Number(requestAmount).toFixed(2) !== Number(paymentAmount).toFixed(2)) return false;
+
+  const requestTransactionId = normalizeTransactionId(request.transaction_id);
+  const paymentTransactionId = normalizeTransactionId(payment.transaction_id);
+  const reliablePaymentTransactionId = paymentTransactionId && !paymentTransactionId.startsWith('AUTO-') ? paymentTransactionId : '';
+  if (reliablePaymentTransactionId && requestTransactionId === reliablePaymentTransactionId) return true;
+
+  const requestPayer = normalizePayerNumber(request.payer_number);
+  const paymentPayer = normalizePayerNumber(payment.payer_number);
+  if (!requestPayer || !paymentPayer || requestPayer !== paymentPayer) return false;
+
+  const paidAt = normalizeDate(payment.receivedAt || payment.createdAt) || now;
+  const startedAt = normalizeDate(request.paymentStartedAt || request.createdAt) || now;
+  const expiresAt = normalizeDate(request.expiresAt) || new Date(startedAt.getTime() + PAYMENT_WINDOW_MS);
+  return paidAt.getTime() >= startedAt.getTime() - PAYMENT_LOOKBACK_MS && paidAt.getTime() <= expiresAt.getTime();
+}
+
+async function claimAdminPayment(db, { transactionId, payerNumber, amount, paymentStartedAt, websiteObjectId, clientObjectId, purpose, now }) {
+  const identityFilter = transactionId
+    ? { transaction_id: transactionId, amount, status: { $ne: 'rejected' } }
+    : { amount, payer_number: payerNumber, status: { $ne: 'rejected' } };
+
+  const candidates = await db.collection('payments')
+    .find({ $and: [identityFilter, adminPaymentRecordFilter(), unusedPaymentFilter()] })
+    .sort({ receivedAt: -1, createdAt: -1 })
+    .limit(20)
+    .toArray();
+
+  const window = paymentTimeWindow(normalizeDate(paymentStartedAt) || now);
+  const matched = candidates.find((payment) => {
+    if (transactionId) return true;
+    return billingRequestMatchesPayment({
+      payer_number: payerNumber,
+      amount,
+      paymentStartedAt: window.startedAt,
+      expiresAt: window.expiresAt
+    }, payment, now);
+  });
+  if (!matched) return null;
+
+  const result = await db.collection('payments').findOneAndUpdate(
+    { $and: [{ _id: matched._id }, identityFilter, adminPaymentRecordFilter(), unusedPaymentFilter()] },
+    {
+      $set: {
+        status: 'verified',
+        usedFor: purpose,
+        usedBy: websiteObjectId,
+        websiteId: websiteObjectId,
+        clientId: clientObjectId,
+        verifiedAt: now,
+        updatedAt: now
+      }
+    },
+    { returnDocument: 'after' }
+  );
+
+  return unwrapMongoResult(result);
+}
+
+function buildBillingMatchKey(websiteId, payerNumber, amount, startedAt) {
+  return [
+    String(websiteId),
+    payerNumber,
+    Number(amount || 0).toFixed(2),
+    Math.floor(startedAt.getTime() / 1000)
+  ].join(':');
+}
+
+function normalizeDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function unusedPaymentFilter() {

@@ -123,6 +123,69 @@ test('records a helpful note when admin SMS TrxID matches but amount is wrong', 
   assert.match(request.adminNote, /amount 50\.00 did not equal expected 60\.00/);
 });
 
+test('auto-approves a pending billing request by payer number, amount, and time without TrxID', async () => {
+  const clientId = new ObjectId();
+  const websiteId = new ObjectId();
+  const paymentId = new ObjectId();
+  const requestId = new ObjectId();
+  const startedAt = new Date('2026-05-01T08:00:00.000Z');
+  const now = new Date('2026-05-01T08:03:00.000Z');
+  const db = new MemoryDb({
+    payments: [{
+      _id: paymentId,
+      submittedBy: 'admin',
+      transaction_id: 'AUTO-ADMIN-001',
+      payer_number: '01799998888',
+      amount: 60,
+      status: 'received',
+      receivedAt: new Date('2026-05-01T08:02:00.000Z'),
+      createdAt: now
+    }],
+    websites: [{
+      _id: websiteId,
+      clientId,
+      domain: 'merchant.example',
+      brandStatus: 'pending_review',
+      paymentStatus: 'pending_review',
+      monthlyFee: 60,
+      createdAt: startedAt
+    }],
+    billing_requests: [{
+      _id: requestId,
+      clientId,
+      websiteId,
+      domain: 'merchant.example',
+      payer_number: '01799998888',
+      amount: 60,
+      months: 1,
+      siteCount: 1,
+      status: 'pending_review',
+      paymentStartedAt: startedAt,
+      expiresAt: new Date('2026-05-01T08:30:00.000Z'),
+      createdAt: startedAt
+    }],
+    subscription_renewals: []
+  });
+
+  const result = await autoApprovePendingAdminPayment(
+    db,
+    await db.collection('payments').findOne({ _id: paymentId }),
+    now
+  );
+
+  assert.equal(result.status, 'approved');
+  assert.equal(result.payer_number, '01799998888');
+
+  const website = await db.collection('websites').findOne({ _id: websiteId });
+  assert.equal(website.brandStatus, 'active');
+
+  const request = await db.collection('billing_requests').findOne({ _id: requestId });
+  assert.equal(request.status, 'approved');
+
+  const payment = await db.collection('payments').findOne({ _id: paymentId });
+  assert.equal(payment.usedFor, 'brand_opening');
+});
+
 test('auto-approves pending merchant verification from the merchant owned SMS record', async () => {
   const clientId = new ObjectId();
   const websiteId = new ObjectId();
@@ -175,6 +238,58 @@ test('auto-approves pending merchant verification from the merchant owned SMS re
   const verification = await db.collection('payment_verifications').findOne({ transaction_id: 'TRX-OWNED' });
   assert.equal(String(verification.paymentId), String(paymentId));
   assert.equal(String(verification.clientId), String(clientId));
+});
+
+test('auto-approves merchant verification by payer number, amount, and time without customer TrxID', async () => {
+  const clientId = new ObjectId();
+  const websiteId = new ObjectId();
+  const paymentId = new ObjectId();
+  const requestId = new ObjectId();
+  const now = new Date('2026-05-01T08:03:00.000Z');
+  const startedAt = new Date('2026-05-01T08:00:00.000Z');
+  const db = new MemoryDb({
+    payments: [{
+      _id: paymentId,
+      submittedBy: 'client',
+      submittedByClientId: clientId,
+      transaction_id: 'AUTO-SMS-001',
+      payer_number: '01711112222',
+      amount: 500,
+      status: 'received',
+      receivedAt: new Date('2026-05-01T08:02:00.000Z'),
+      createdAt: now
+    }],
+    merchant_verification_requests: [{
+      _id: requestId,
+      clientId,
+      websiteId,
+      domain: 'merchant.example',
+      payer_number: '01711112222',
+      amount: 500,
+      order_id: 'ORDER-POPUP',
+      status: 'pending_sms',
+      paymentStartedAt: startedAt,
+      expiresAt: new Date('2026-05-01T08:30:00.000Z'),
+      createdAt: startedAt
+    }],
+    payment_verifications: []
+  });
+
+  const result = await autoApprovePendingMerchantVerification(
+    db,
+    await db.collection('payments').findOne({ _id: paymentId }),
+    now
+  );
+
+  assert.equal(result.status, 'verified');
+  assert.equal(result.payer_number, '01711112222');
+
+  const payment = await db.collection('payments').findOne({ _id: paymentId });
+  assert.equal(payment.usedFor, 'merchant_payment');
+
+  const verification = await db.collection('payment_verifications').findOne({ transaction_id: 'AUTO-SMS-001' });
+  assert.equal(verification.payer_number, '01711112222');
+  assert.equal(verification.order_id, 'ORDER-POPUP');
 });
 
 test('does not approve merchant verification from admin or already used SMS records', async () => {

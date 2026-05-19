@@ -12,7 +12,7 @@ const MAX_BODY_BYTES = 1_048_576;
 await loadEnvFile('.env', true);
 await loadEnvFile('.env.local', true);
 
-const { publicServerError } = await import('./server/handlers/_utils.js');
+const { publicServerError, setCors } = await import('./server/handlers/_utils.js');
 const port = Number(process.env.PORT || 3000);
 
 const server = http.createServer(async (req, res) => {
@@ -53,6 +53,14 @@ server.listen(port, () => {
 });
 
 async function handleApi(req, res, url) {
+  attachResponseHelpers(res);
+  setCors(req, res, 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   const route = url.pathname.replace(/^\/api\/?/, '');
   if (!isSafeRoutePath(route)) {
     res.statusCode = 404;
@@ -94,7 +102,6 @@ async function handleApi(req, res, url) {
 
   req.query = Object.fromEntries(url.searchParams.entries());
   req.body = await readBody(req);
-  attachResponseHelpers(res);
 
   const moduleUrl = `${pathToFileURL(handlerFilePath).href}?t=${Date.now()}`;
   const mod = await import(moduleUrl);

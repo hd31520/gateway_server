@@ -4,7 +4,9 @@ import { requireClient } from '../_auth.js';
 import { getAdminConfig } from '../_admin.js';
 import {
   activateWebsiteFromAdminPayment,
+  normalizePayerNumber,
   normalizeTransactionId,
+  paymentTimeWindow,
   upsertBillingRequest
 } from '../_billing.js';
 import { clientSmsPaymentFilter } from '../_merchant_verification.js';
@@ -47,14 +49,14 @@ const docs = [
     method: 'POST',
     path: '/api/sms',
     auth: 'Bearer client_token',
-    body: ['transaction_id', 'amount', 'sender_name', 'raw_message', 'device_id']
+    body: ['payer_number', 'amount', 'received_at', 'sender_name', 'raw_message', 'device_id']
   },
   {
     title: 'Merchant payment verify',
     method: 'POST',
     path: '/api/merchant/verify',
     auth: 'X-API-Key: website_api_key',
-    body: ['domain', 'transaction_id', 'amount', 'order_id']
+    body: ['domain', 'payer_number', 'amount', 'order_id', 'payment_time']
   },
   {
     title: 'Client portal snapshot',
@@ -78,7 +80,7 @@ const docs = [
     body: ['name', 'domain', 'walletProvider', 'walletNumber', 'receiverName', 'transaction_id']
   },
   {
-    title: 'Submit admin payment TrxID',
+    title: 'Submit admin payment reference',
     method: 'POST',
     path: '/api/client/me?resource=billing',
     auth: 'Bearer client_token',
@@ -283,13 +285,16 @@ async function handleBilling(req, res, db, clientId) {
 
   const websiteId = cleanString(body.websiteId || body.website_id, 80);
   const transactionId = normalizeTransactionId(body.transaction_id || body.transactionId);
+  const payerNumber = normalizePayerNumber(body.payer_number || body.payerNumber || body.senderNumber || body.customerPhone);
+  const paymentStartedAt = normalizePaymentTime(body.payment_time || body.paymentTime) || new Date();
+  const paymentWindow = paymentTimeWindow(paymentStartedAt);
   const siteCount = Math.min(Math.max(Number(body.siteCount || 1), 1), 500);
   const months = normalizeBillingMonths(body.months || 1);
   const expectedAmount = computePlanTotalAmount(siteCount, months);
   const amount = Number(body.amount || expectedAmount);
 
-  if (!ObjectId.isValid(websiteId) || !transactionId) {
-    return res.status(400).json({ success: false, error: 'websiteId and transaction_id are required' });
+  if (!ObjectId.isValid(websiteId) || (!transactionId && !payerNumber)) {
+    return res.status(400).json({ success: false, error: 'websiteId and payer_number are required' });
   }
 
   if (amount !== expectedAmount) {
@@ -312,6 +317,8 @@ async function handleBilling(req, res, db, clientId) {
     websiteId: websiteObjectId,
     clientId,
     transactionId,
+    payerNumber,
+    paymentStartedAt: paymentWindow.startedAt,
     amount: expectedAmount,
     months,
     purpose: isWebsiteActive(website, now) ? 'domain_subscription' : 'brand_opening',
@@ -324,6 +331,8 @@ async function handleBilling(req, res, db, clientId) {
     websiteId: websiteObjectId,
     domain: website.domain,
     transactionId,
+    payerNumber,
+    paymentStartedAt: paymentWindow.startedAt,
     amount: expectedAmount,
     months,
     siteCount,
@@ -344,6 +353,12 @@ async function handleBilling(req, res, db, clientId) {
     website: activation?.website ? serializeWebsite(activation.website) : serializeWebsite(website),
     billingRequest: serializeBillingRequest(billingRequest)
   });
+}
+
+function normalizePaymentTime(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function ownerPaymentQuery(clientId) {

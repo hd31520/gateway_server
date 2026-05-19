@@ -6,7 +6,7 @@ This project receives payment SMS data from your Android app, saves it in MongoD
 - Client register/login web app.
 - Multiple website/domain support per client.
 - Tk 60 monthly activation per domain.
-- Merchant API verification by `transaction_id` and `amount`.
+- Merchant API verification by payer/sender number, exact amount, and checkout time.
 
 ## Run locally
 
@@ -66,13 +66,14 @@ Body:
 {
   "sender": "bKash",
   "source_number": "16247",
-  "transaction_id": "ABC123456",
+  "payer_number": "01711112222",
   "amount": "500.00",
-  "raw_message": "You have received Tk 500.00. TrxID ABC123456"
+  "received_at": "2026-05-19T10:30:00.000Z",
+  "raw_message": "You have received Tk 500.00 from 01711112222"
 }
 ```
 
-Duplicate `transaction_id` values are blocked.
+Provider references are optional. If no provider reference is present, the server creates an internal `AUTO-*` reference so the SMS record can still be stored uniquely.
 
 Client sessions can be ended with:
 
@@ -97,14 +98,14 @@ Clients can:
 
 - Add multiple websites/domains.
 - Copy the API key for each domain.
-- Submit a Tk 60 subscription transaction ID to activate a domain for one month.
+- Submit a Tk 60 subscription payment reference to activate a domain for one month.
 - Open `/checkout.html` to test a merchant checkout client.
 
 The Tk 60 transaction must already exist in the `payments` collection from the Android SMS endpoint.
 
-## Merchant payment verification API
+## Merchant payment popup verification API
 
-Merchant websites verify customer payments by transaction ID and amount:
+Merchant websites start/confirm customer payments from a popup checkout and verify by sender number, exact amount, and payment time. Customer payment reference is not required for this flow:
 
 ```text
 POST /api/merchant/verify
@@ -128,9 +129,11 @@ Body:
 ```json
 {
   "domain": "example.com",
-  "transaction_id": "CUSTOMER_TRX_ID",
+  "payer_number": "01711112222",
   "amount": 500,
-  "order_id": "ORDER-1001"
+  "order_id": "ORDER-1001",
+  "payment_time": "2026-05-19T10:30:00.000Z",
+  "return_url": "https://shop.example.com/order/ORDER-1001"
 }
 ```
 
@@ -142,7 +145,8 @@ Success response:
   "status": "verified",
   "verification": {
     "id": "verification_id",
-    "transaction_id": "CUSTOMER_TRX_ID",
+    "payment_ref": "PAY-ORDER1001-2222-50000-MOCKREF",
+    "payer_number": "01711112222",
     "amount": 500,
     "order_id": "ORDER-1001",
     "verifiedAt": "2026-04-28T00:00:00.000Z"
@@ -154,9 +158,9 @@ Rules:
 
 - The domain must be active with monthly Tk 60 paid.
 - The API key must belong to that domain.
-- The `transaction_id` and `amount` must match an unused Android SMS payment. If the merchant verifies before the SMS arrives, the request is saved as `pending_sms` and is approved automatically when the matching Android SMS is uploaded.
+- `payer_number`, `amount`, and the payment time window must match an unused Android SMS payment. If the merchant verifies before the SMS arrives, the request is saved as `pending_sms` and is approved automatically when the matching Android SMS is uploaded.
 - Merchant matching only uses SMS records uploaded by that merchant's own logged-in Android account. Admin/gateway SMS records and other merchants' SMS records are not eligible.
-- A transaction ID can only be used once.
+- A matched SMS/payment reference can only be used once.
 - Manual acceptance is disabled by default. Only enable `ALLOW_MANUAL_MERCHANT_ACCEPT=true` if you intentionally accept the fraud risk.
 
 ## Deploy to Vercel

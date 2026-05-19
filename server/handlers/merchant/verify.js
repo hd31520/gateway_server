@@ -2,7 +2,10 @@ import { getDb } from '../_db.js';
 import { hashApiKey } from '../_auth.js';
 import {
   findConflictingPendingMerchantVerification,
+  normalizePayerNumber,
   ownerPaymentFilter,
+  paymentTimeWindow,
+  pendingMatchesPayment,
   upsertPendingMerchantVerification,
   unwrapMongoResult
 } from '../_merchant_verification.js';
@@ -41,6 +44,9 @@ export default async function handler(req, res) {
     const apiKey = readApiKey(req);
     const transactionId = cleanString(body.transaction_id || body.transactionId || body.trxId || body.txnId, 120).toUpperCase();
     const amount = normalizeAmount(body.amount);
+    const payerNumber = normalizePayerNumber(body.payer_number || body.payerNumber || body.customer_phone || body.customerPhone || body.sender_number || body.senderNumber);
+    const paymentStartedAt = normalizePaymentTime(body.payment_time || body.paymentTime) || new Date();
+    const paymentWindow = paymentTimeWindow(paymentStartedAt);
     const orderId = cleanString(body.order_id || body.orderId, 160);
     const sellerName = cleanString(body.seller_name || body.sellerName, 160);
     const buyerName = cleanString(body.buyer_name || body.buyerName || body.customer_name || body.customerName, 160);
@@ -49,11 +55,12 @@ export default async function handler(req, res) {
     const returnUrl = normalizePublicUrl(body.return_url || body.returnUrl);
     const manualAccept = body.manual === true || body.manual === 'true';
     const submittedDomain = normalizeDomain(body.domain);
+    const checkoutReference = transactionId || buildCheckoutReference({ payerNumber, amount, orderId, paymentStartedAt });
 
-    if (!apiKey || !transactionId || !amount) {
+    if (!apiKey || !amount || (!transactionId && !payerNumber)) {
       return res.status(400).json({
         success: false,
-        error: 'api_key, transaction_id, and valid amount are required'
+        error: 'api_key, valid amount, and payer_number are required'
       });
     }
 
@@ -87,7 +94,9 @@ export default async function handler(req, res) {
       return res.status(403).json({ success: false, error: 'Manual payment acceptance is disabled for this gateway' });
     }
 
-    const existing = await db.collection('payment_verifications').findOne({ transaction_id: transactionId });
+    const existing = transactionId
+      ? await db.collection('payment_verifications').findOne({ transaction_id: transactionId })
+      : null;
     if (existing) {
       const sameWebsite = String(existing.websiteId) === String(website._id);
       if (sameWebsite && Number(existing.amount) === amount) {
@@ -97,6 +106,8 @@ export default async function handler(req, res) {
           verification: {
             id: String(existing._id),
             transaction_id: existing.transaction_id,
+            payment_ref: existing.transaction_id,
+            payer_number: existing.payer_number || '',
             amount: existing.amount,
             order_id: existing.order_id || null,
             verifiedAt: existing.createdAt
@@ -104,12 +115,14 @@ export default async function handler(req, res) {
         });
       }
 
-      return res.status(409).json({ success: false, error: 'This transaction ID is already used' });
+      return res.status(409).json({ success: false, error: 'This payment reference is already used' });
     }
 
-    const conflictingPending = await findConflictingPendingMerchantVerification(db, website, transactionId, amount);
+    const conflictingPending = transactionId
+      ? await findConflictingPendingMerchantVerification(db, website, transactionId, amount)
+      : null;
     if (conflictingPending) {
-      return res.status(409).json({ success: false, error: 'This transaction ID is already waiting for another verification' });
+      return res.status(409).json({ success: false, error: 'This payment reference is already waiting for another verification' });
     }
 
     const now = new Date();
@@ -119,7 +132,8 @@ export default async function handler(req, res) {
         websiteId: website._id,
         domain: website.domain,
         paymentId: null,
-        transaction_id: transactionId,
+        transaction_id: checkoutReference,
+        payer_number: payerNumber,
         amount,
         order_id: orderId || null,
         sellerName,
@@ -134,7 +148,7 @@ export default async function handler(req, res) {
       const result = await db.collection('payment_verifications').insertOne(verification);
       verification._id = result.insertedId;
       await db.collection('merchant_verification_requests').updateOne(
-        { transaction_id: transactionId },
+        transactionId ? { transaction_id: transactionId } : { _id: verification._id },
         {
           $set: {
             clientId: website.clientId,
@@ -142,7 +156,8 @@ export default async function handler(req, res) {
             domain: website.domain,
             paymentId: null,
             verificationId: verification._id,
-            transaction_id: transactionId,
+            transaction_id: checkoutReference,
+            payer_number: payerNumber,
             amount,
             order_id: orderId || null,
             sellerName,
@@ -168,7 +183,9 @@ export default async function handler(req, res) {
         redirectUrl: buildReturnUrl(returnUrl, 'completed', transactionId, orderId),
         verification: {
           id: String(verification._id),
-          transaction_id: transactionId,
+          transaction_id: checkoutReference,
+          payment_ref: checkoutReference,
+          payer_number: payerNumber,
           amount,
           order_id: orderId || null,
           verifiedAt: now
@@ -176,28 +193,57 @@ export default async function handler(req, res) {
       });
     }
 
-    const paymentResult = await db.collection('payments').findOneAndUpdate(
-      {
+    const paymentQuery = transactionId
+      ? { transaction_id: transactionId, amount, status: { $ne: 'rejected' } }
+      : { payer_number: payerNumber, amount, status: { $ne: 'rejected' } };
+    const candidatePayments = await db.collection('payments')
+      .find({
         $and: [
-          { transaction_id: transactionId, amount, status: { $ne: 'rejected' } },
+          paymentQuery,
           ownerPaymentFilter(website.clientId),
-          { $or: [{ usedFor: { $exists: false } }, { usedFor: null }] }
+          { $or: [{ usedFor: { $exists: false } }, { usedFor: null }, { usedFor: '' }] }
         ]
-      },
+      })
+      .sort({ receivedAt: -1, createdAt: -1 })
+      .limit(10)
+      .toArray();
+    const candidatePayment = candidatePayments.find((item) => pendingMatchesPayment(
       {
-        $set: {
-          status: 'verified',
-          usedFor: 'merchant_payment',
-          usedBy: website._id,
-          websiteId: website._id,
-          clientId: website.clientId,
-          verifiedAt: now,
-          updatedAt: now
-        }
+        amount,
+        payer_number: payerNumber,
+        transaction_id: transactionId,
+        paymentStartedAt: paymentWindow.startedAt,
+        expiresAt: paymentWindow.expiresAt
       },
-      { returnDocument: 'after' }
-    );
-    const payment = unwrapMongoResult(paymentResult);
+      item,
+      { amount, payerNumber, transactionId, now }
+    ));
+    let payment = null;
+    if (candidatePayment) {
+      const claimResult = await db.collection('payments').findOneAndUpdate(
+        {
+          $and: [
+            { _id: candidatePayment._id },
+            paymentQuery,
+            ownerPaymentFilter(website.clientId),
+            { $or: [{ usedFor: { $exists: false } }, { usedFor: null }, { usedFor: '' }] }
+          ]
+        },
+        {
+          $set: {
+            status: 'verified',
+            usedFor: 'merchant_payment',
+            usedBy: website._id,
+            websiteId: website._id,
+            clientId: website.clientId,
+            verifiedAt: now,
+            updatedAt: now
+          }
+        },
+        { returnDocument: 'after' }
+      );
+      payment = unwrapMongoResult(claimResult);
+    }
 
     if (!payment) {
       const pendingVerification = await upsertPendingMerchantVerification({
@@ -205,6 +251,8 @@ export default async function handler(req, res) {
         website,
         transactionId,
         amount,
+        payerNumber,
+        paymentStartedAt: paymentWindow.startedAt,
         orderId,
         sellerName,
         buyerName,
@@ -217,11 +265,13 @@ export default async function handler(req, res) {
       return res.status(202).json({
         success: true,
         status: 'pending_sms',
-        message: 'Payment verification is pending until the matching Android SMS record arrives',
+        message: 'Payment verification is pending until the matching Android SMS record arrives for the sender number, amount, and time window',
         redirectUrl: buildReturnUrl(returnUrl, 'pending', transactionId, orderId),
         pendingVerification: {
           id: pendingVerification?._id ? String(pendingVerification._id) : null,
           transaction_id: transactionId,
+          payment_ref: transactionId || '',
+          payer_number: payerNumber,
           amount,
           order_id: orderId || null,
           status: 'pending_sms'
@@ -234,7 +284,8 @@ export default async function handler(req, res) {
       websiteId: website._id,
       domain: website.domain,
       paymentId: payment._id,
-      transaction_id: transactionId,
+      transaction_id: checkoutReference || payment.transaction_id,
+      payer_number: payerNumber,
       amount,
       order_id: orderId || null,
       sellerName,
@@ -249,7 +300,7 @@ export default async function handler(req, res) {
     const result = await db.collection('payment_verifications').insertOne(verification);
     verification._id = result.insertedId;
     await db.collection('merchant_verification_requests').updateOne(
-      { transaction_id: transactionId },
+      transactionId ? { transaction_id: transactionId } : { _id: verification._id },
       {
         $set: {
           clientId: website.clientId,
@@ -258,7 +309,8 @@ export default async function handler(req, res) {
           status: 'verified',
           paymentId: payment._id,
           verificationId: verification._id,
-          transaction_id: transactionId,
+          transaction_id: checkoutReference || payment.transaction_id,
+          payer_number: payerNumber,
           amount,
           order_id: orderId || null,
           sellerName,
@@ -283,7 +335,9 @@ export default async function handler(req, res) {
       redirectUrl: buildReturnUrl(returnUrl, 'completed', transactionId, orderId),
       verification: {
         id: String(verification._id),
-        transaction_id: transactionId,
+        transaction_id: checkoutReference || payment.transaction_id,
+        payment_ref: checkoutReference || payment.transaction_id,
+        payer_number: payerNumber,
         amount,
         order_id: orderId || null,
         verifiedAt: now
@@ -291,7 +345,7 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     if (error && error.code === 11000) {
-      return res.status(409).json({ success: false, error: 'This transaction ID is already used' });
+      return res.status(409).json({ success: false, error: 'This payment reference is already used' });
     }
     console.error(error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
@@ -318,12 +372,26 @@ function buildReturnUrl(returnUrl, status, transactionId, orderId) {
   try {
     const url = new URL(returnUrl);
     url.searchParams.set('status', status);
-    url.searchParams.set('transaction_id', transactionId);
+    if (transactionId) url.searchParams.set('payment_ref', transactionId);
     if (orderId) url.searchParams.set('order_id', orderId);
     return url.toString();
   } catch (error) {
     return null;
   }
+}
+
+function buildCheckoutReference({ payerNumber, amount, orderId, paymentStartedAt }) {
+  const stamp = Number(paymentStartedAt?.getTime?.() || Date.now()).toString(36).toUpperCase();
+  const phoneTail = String(payerNumber || 'PHONE').slice(-4) || 'PHONE';
+  const amountPart = Number(amount || 0).toFixed(2).replace(/\D/g, '');
+  const orderPart = cleanString(orderId, 24).replace(/[^a-z0-9]/gi, '').toUpperCase() || 'ORDER';
+  return `PAY-${orderPart}-${phoneTail}-${amountPart}-${stamp}`;
+}
+
+function normalizePaymentTime(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function merchantManualAcceptEnabled(website) {
