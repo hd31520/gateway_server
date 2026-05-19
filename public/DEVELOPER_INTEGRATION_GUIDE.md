@@ -19,7 +19,7 @@ This guide is written for merchants and developers who want to embed GatewayFlow
 
 ## 2. What you need before integrating
 
-- A GatewayFlow server URL.
+- A GatewayFlow server URL. The live server used in the examples below is `https://payment-gateway-server-ten.vercel.app`.
 - A website API key from the merchant portal.
 - A callback URL on your own domain.
 - The hosted `widget.js` script from your gateway server.
@@ -74,9 +74,9 @@ The client portal uses real routes, so sections can be opened directly and refre
 
 ```html
 <script>
-  window.GATEWAY_WIDGET_URL = "https://your-gateway-domain.com";
+  window.GATEWAY_WIDGET_URL = "https://payment-gateway-server-ten.vercel.app";
 </script>
-<script src="https://your-gateway-domain.com/widget.js"></script>
+<script src="https://payment-gateway-server-ten.vercel.app/widget.js"></script>
 
 <button
   onclick="GatewayWidget.open({
@@ -92,7 +92,7 @@ The client portal uses real routes, so sections can be opened directly and refre
 ### Next.js or React
 
 ```env
-NEXT_PUBLIC_PAYMENT_WIDGET_URL=https://your-gateway-domain.com
+NEXT_PUBLIC_PAYMENT_WIDGET_URL=https://payment-gateway-server-ten.vercel.app
 ```
 
 ```jsx
@@ -214,9 +214,9 @@ Suggested workflow:
 
 ```html
 <script>
-  window.GATEWAY_WIDGET_URL = "https://your-gateway-domain.com";
+  window.GATEWAY_WIDGET_URL = "https://payment-gateway-server-ten.vercel.app";
 </script>
-<script src="https://your-gateway-domain.com/widget.js"></script>
+<script src="https://payment-gateway-server-ten.vercel.app/widget.js"></script>
 <button onclick="GatewayWidget.open({ amount: 500, callback: 'https://your-merchant-site.com/return' })">
   Pay Now
 </button>
