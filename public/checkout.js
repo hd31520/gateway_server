@@ -54,6 +54,7 @@ let lastPayload = {};
 let pollTimer = null;
 let countdownTimer = null;
 let countdown = 120;
+let remoteWallets = [];
 
 document.getElementById('checkoutConfigForm').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -70,7 +71,10 @@ document.getElementById('phoneNextBtn').addEventListener('click', () => {
 document.getElementById('paidBtn').addEventListener('click', submitPayment);
 document.getElementById('tryAgainBtn').addEventListener('click', () => showStep('methods'));
 document.getElementById('doneBtn').addEventListener('click', () => window.close());
-document.getElementById('copyReceiverBtn').addEventListener('click', () => copyText(selectedWallet?.number || ''));
+document.getElementById('copyReceiverBtn').addEventListener('click', () => {
+  if (!selectedWallet?.number) return alert('Merchant receiver number is not configured yet.');
+  return copyText(selectedWallet.number);
+});
 fields.payerNumber.addEventListener('input', () => {
   fields.payerNumber.value = fields.payerNumber.value.replace(/\D/g, '');
 });
@@ -102,6 +106,7 @@ function boot() {
 
   renderWallets();
   updateSummary();
+  fetchMerchantConfig();
   writeResponse({
     success: null,
     message: 'Ready. Select wallet, enter sender number, then wait for Android SMS match.',
@@ -111,6 +116,7 @@ function boot() {
 }
 
 function walletOptions() {
+  if (remoteWallets.length) return remoteWallets;
   const rawMethods = (params.get('methods') || params.get('payment_methods') || params.get('paymentMethods') || params.get('payment_method') || params.get('paymentMethod') || 'bkash')
     .split(',')
     .map((item) => item.trim().toLowerCase())
@@ -159,6 +165,46 @@ function updateWalletHero() {
   updateInstructionCopy();
 }
 
+async function fetchMerchantConfig() {
+  const apiKey = fields.apiKey.value.trim();
+  const domain = normalizeDomain(fields.domain.value);
+  if (!apiKey || !domain) return;
+
+  try {
+    const configUrl = new URL(fields.endpoint.value.trim() || '/api/merchant/verify', location.origin);
+    configUrl.searchParams.set('config', '1');
+    configUrl.searchParams.set('domain', domain);
+    const response = await fetch(configUrl.toString(), { headers: { 'X-API-Key': apiKey } });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      writeResponse({ httpStatus: response.status, ...data });
+      return;
+    }
+
+    const provider = String(data.walletProvider || 'bkash').toLowerCase();
+    const meta = walletMeta[provider] || walletMeta.other;
+    remoteWallets = [{
+      id: `${provider}-remote`,
+      provider,
+      number: normalizePhone(data.walletNumber || ''),
+      ...meta
+    }];
+    fields.domain.value = data.domain || domain;
+    if (!fields.sellerName.value && data.merchantName) fields.sellerName.value = data.merchantName;
+    renderWallets();
+    updateSummary();
+    writeResponse({
+      success: true,
+      message: 'Merchant wallet loaded from GatewayFlow.',
+      domain: data.domain,
+      walletProvider: data.walletProvider,
+      walletNumber: data.walletNumber || ''
+    });
+  } catch (error) {
+    writeResponse({ success: false, error: error.message });
+  }
+}
+
 function updateInstructionCopy() {
   const walletName = selectedWallet?.label || 'wallet';
   const action = selectedWallet?.action || 'Payment';
@@ -174,6 +220,9 @@ async function submitPayment() {
   const amount = Number(fields.amount.value);
   if (!payerNumber || !Number.isFinite(amount) || amount <= 0 || !fields.orderId.value.trim()) {
     return fail('Sender number, order ID, and valid amount are required.');
+  }
+  if (!selectedWallet?.number) {
+    return fail('Merchant receiver number is not configured. Add the brand wallet number in GatewayFlow portal or pass receiverNumber to GatewayWidget.open().');
   }
 
   const payload = {

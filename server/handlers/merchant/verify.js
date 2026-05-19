@@ -385,9 +385,8 @@ async function handleMerchantStatus(req, res) {
     const orderId = cleanString(url.searchParams.get('order_id') || url.searchParams.get('orderId') || '', 160);
     const payerNumber = normalizePayerNumber(url.searchParams.get('payer_number') || url.searchParams.get('payerNumber'));
     const amount = normalizeAmount(url.searchParams.get('amount'));
-    if (!requestId && (!orderId || !payerNumber || !amount)) {
-      return res.status(400).json({ success: false, error: 'request_id or order_id, payer_number, and amount are required' });
-    }
+    const wantsConfig = url.searchParams.get('config') === '1' || url.searchParams.get('action') === 'config';
+    const submittedDomain = normalizeDomain(url.searchParams.get('domain'));
 
     const db = await getDb();
     const website = await db.collection('websites').findOne({
@@ -399,6 +398,25 @@ async function handleMerchantStatus(req, res) {
     if (!website) return res.status(401).json({ success: false, error: 'Invalid API key' });
     if (!requestOriginAllowedForWebsite(req, website)) {
       return res.status(403).json({ success: false, error: 'Request origin does not match this API key domain' });
+    }
+    if (submittedDomain && submittedDomain !== website.domain) {
+      return res.status(403).json({ success: false, error: 'Domain does not match this API key' });
+    }
+
+    if (wantsConfig) {
+      return res.status(200).json({
+        success: true,
+        domain: website.domain,
+        merchantName: website.name || website.domain,
+        walletProvider: website.walletProvider || 'bkash',
+        walletNumber: website.walletNumber || '',
+        receiverName: website.receiverName || website.name || website.domain || '',
+        paymentMethods: [website.walletProvider || 'bkash'].filter(Boolean)
+      });
+    }
+
+    if (!requestId && (!orderId || !payerNumber || !amount)) {
+      return res.status(400).json({ success: false, error: 'request_id or order_id, payer_number, and amount are required' });
     }
 
     const query = requestId
@@ -470,6 +488,8 @@ function requestOriginAllowedForWebsite(req, website) {
 
   try {
     const hostname = normalizeDomain(new URL(source).hostname);
+    const requestHost = normalizeDomain(String(req.headers.host || '').split(':')[0]);
+    if (requestHost && hostname === requestHost) return true;
     return hostname === website.domain || hostname.endsWith(`.${website.domain}`);
   } catch (error) {
     return false;

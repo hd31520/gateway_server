@@ -98,7 +98,7 @@ The client portal uses real routes, so sections can be opened directly and refre
     sellerName: 'My Shop',
     customerName: 'John Doe',
     paymentMethods: ['bkash', 'nagad'],
-    receiverNumber: '017XXXXXXXX',
+    receiverNumber: '017XXXXXXXX', // optional when brand wallet number is saved in GatewayFlow
     callback: 'https://your-merchant-site.com/payment-return',
     onComplete: (result) => console.log('payment complete', result)
   })"
@@ -125,7 +125,7 @@ function PayButton() {
           amount: 500,
           orderId: 'ORD-1001',
           paymentMethods: ['bkash', 'nagad'],
-          receiverNumber: '017XXXXXXXX',
+          receiverNumber: '017XXXXXXXX', // optional when brand wallet number is saved
           callback: 'https://your-merchant-site.com/payment-return',
           onComplete: (result) => console.log(result)
         });
@@ -149,7 +149,7 @@ function PayButton() {
   customerName: 'John Doe',
   customerPhone: '0179007328',
   paymentMethods: ['bkash', 'nagad'],
-  receiverNumber: '017XXXXXXXX',
+  receiverNumber: '017XXXXXXXX', // optional when brand wallet number is saved
   onComplete: (result) => {
     console.log(result);
   }
