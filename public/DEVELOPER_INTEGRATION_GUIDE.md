@@ -1,57 +1,78 @@
 # GatewayFlow Developer Integration Guide
 
-This guide shows how to connect another website to the GatewayFlow payment system, open the payment popup, verify payments from your dashboard, and manage websites, subscriptions, and users.
+Live app:
 
-## 1. What you get
+- Dashboard and developer portal: https://gateway-client-rho.vercel.app/
+- Payment gateway server: use your deployed gateway URL for `widget.js`, checkout, and APIs.
 
-- A hosted payment popup (`widget.js`) that opens the gateway checkout page.
-- A merchant verification API that checks payer number, amount, and payment time.
-- A client dashboard for websites, brands, subscriptions, Android download, and developer docs.
-- Client and admin APIs protected by JWT or API key, depending on the route.
+This guide explains how to connect another website to GatewayFlow, open the popup payment window, verify payments, and manage subscriptions, domains, and users.
 
-## 2. Basic flow
+## 1. Merchant integration at a glance
 
 1. Your website shows a Pay button.
 2. Clicking the button opens the GatewayFlow popup.
-3. The customer selects bKash, Nagad, or Rocket and sends money.
-4. Android forwards the SMS to the gateway server.
+3. The customer chooses bKash, Nagad, or Rocket and sends money.
+4. Android forwards the payment SMS to the gateway server.
 5. The server verifies the payment and returns a transaction ID.
 6. Your website receives the result through callback, popup message, or server status polling.
 
-## 3. Widget setup on another website
+## 2. What the merchant site needs
 
-Add the widget script to the merchant site:
+- Your gateway host URL.
+- A website API key from the dashboard.
+- A callback URL on your own domain.
+- The hosted `widget.js` script from your gateway server.
+
+## 3. Add the popup widget to your website
+
+Plain HTML example:
 
 ```html
 <script>
   window.GATEWAY_WIDGET_URL = "https://your-gateway-domain.com";
 </script>
 <script src="https://your-gateway-domain.com/widget.js"></script>
-```
 
-Open the popup from a button:
-
-```html
-<button onclick="GatewayWidget.open({
-  amount: 500,
-  callback: 'https://your-merchant-site.com/payment-return',
-  onComplete: (result) => console.log('payment complete', result)
-})">
+<button
+  onclick="GatewayWidget.open({
+    amount: 500,
+    callback: 'https://your-merchant-site.com/payment-return',
+    onComplete: (result) => console.log('payment complete', result)
+  })"
+>
   Pay Now
 </button>
 ```
 
-If you use Next.js or React, store the gateway host in:
+Next.js or React example:
 
 ```env
 NEXT_PUBLIC_PAYMENT_WIDGET_URL=https://your-gateway-domain.com
 ```
 
-Then pass it into your frontend component and open the popup using that value.
+```jsx
+const gatewayUrl = process.env.NEXT_PUBLIC_PAYMENT_WIDGET_URL;
 
-## 4. Merchant verification API
+function PayButton() {
+  return (
+    <button
+      onClick={() => {
+        window.GatewayWidget.open({
+          amount: 500,
+          callback: 'https://your-merchant-site.com/payment-return',
+          onComplete: (result) => console.log(result)
+        });
+      }}
+    >
+      Pay Now
+    </button>
+  );
+}
+```
 
-Use the merchant verification endpoint when your website receives a payer number or payment reference from the customer.
+## 4. Merchant payment verification API
+
+Use this API when your website needs to verify a payment for a specific domain.
 
 Request:
 
@@ -79,9 +100,9 @@ Rules:
 - The server matches `payer_number + amount + payment_time`.
 - The request must use the website API key assigned to the domain.
 
-## 5. Dashboard checklist
+## 5. Dashboard features
 
-From the client dashboard you can manage:
+The client dashboard shows:
 
 - Admin login and manual brand review
 - Android SMS upload
@@ -91,26 +112,24 @@ From the client dashboard you can manage:
 - Create brand with auto activation
 - Submit admin payment reference
 
-## 6. Website, subscription, and user management
+## 6. Subscription, domain, and user model
 
-You can assign a subscription to a client, allow unlimited domains, and create dynamic users for a school or multi-website business.
+GatewayFlow supports a school or multi-website setup:
 
-### Unlimited subscription model
+- One client can buy a plan.
+- The approved client can add unlimited domains on an unlimited subscription.
+- Each domain can run payment collection for separate websites.
+- The client admin can create dynamic users for staff, branches, or site operators.
 
-- A client can buy a subscription.
-- A permitted client can add unlimited domains under that subscription.
-- Each domain can connect to one dashboard and still handle multiple payment-enabled websites.
-- A client admin can create dynamic users for staff and websites.
+Example workflow:
 
-### Suggested internal workflow
-
-1. Admin creates or activates a client.
+1. Admin creates or activates the client.
 2. Admin grants download permission and subscription access.
-3. Client adds domains in the dashboard.
-4. Client creates users for different staff or school branches.
-5. Each website uses the widget and API key to verify payments.
+3. Client adds domains from the dashboard.
+4. Client creates staff users.
+5. Each website uses the popup widget and its API key.
 
-## 7. API routes referenced in the dashboard
+## 7. Dashboard API routes
 
 ### Admin login and manual brand review
 
@@ -162,9 +181,10 @@ You can assign a subscription to a client, allow unlimited domains, and create d
 ## 8. Safety notes
 
 - Never expose admin credentials in frontend code.
-- Keep API keys on the server or in a secure dashboard only.
+- Keep API keys in the dashboard or server-side only.
 - Restrict callback URLs to approved domains.
 - Validate amount, phone number, and payment time before accepting a payment.
+- Keep one gateway host URL per environment: development, staging, and production.
 
 ## 9. Example merchant page
 
