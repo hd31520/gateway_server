@@ -70,7 +70,7 @@
         <input id="buyerName" placeholder="Customer name" />
 
         <label for="buyerPhone">Buyer phone (sender)</label>
-        <input id="buyerPhone" placeholder="01XXXXXXXXX" />
+        <input id="buyerPhone" type="tel" inputmode="tel" pattern="0[1-9][0-9]{8,9}" maxlength="14" placeholder="01XXXXXXXXX" />
 
         <label for="buyerAddress">Buyer address</label>
         <input id="buyerAddress" placeholder="Customer address" />
@@ -115,9 +115,22 @@
 
     let pollInterval = null;
 
+    function normalizePhone(raw) {
+      let s = String(raw || '').trim();
+      // remove spaces, dashes, parentheses
+      s = s.replace(/[^0-9+]/g, '');
+      // handle +880 or 880 (Bangladesh) -> leading 0
+      if (s.startsWith('+880')) s = '0' + s.slice(4);
+      if (s.startsWith('880')) s = '0' + s.slice(3);
+      // if user entered without leading 0 but starts with 1 and length 10, add 0
+      if (!s.startsWith('0') && s.length === 10 && s.startsWith('1')) s = '0' + s;
+      return s;
+    }
+
     startBtn.addEventListener('click', async function(){
       const amount = Number(document.getElementById('paymentAmount').value || 0);
-      const buyerPhone = (buyerPhoneInput.value || '').trim();
+      let buyerPhone = normalizePhone(buyerPhoneInput.value);
+      buyerPhoneInput.value = buyerPhone; // show normalized value to user
       if (!buyerPhone) {
         alert('Enter your phone number to receive SMS');
         return;
