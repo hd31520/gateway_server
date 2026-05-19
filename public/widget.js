@@ -26,8 +26,6 @@
     return location.origin;
   }
 
-  const GATEWAY_ORIGIN = getGatewayOrigin();
-
   function open(opts = {}){
     const amount = opts.amount || 0;
     const callback = opts.callback || '';
@@ -35,9 +33,31 @@
     const height = opts.height || 760;
     const left = Math.max(0, (screen.width - width) / 2);
     const top = Math.max(0, (screen.height - height) / 2);
+
+    // Resolve gateway origin at call time so runtime overrides work
+    const GATEWAY_ORIGIN = getGatewayOrigin();
     const url = new URL('/checkout.html', GATEWAY_ORIGIN);
     url.searchParams.set('amount', amount);
     if (callback) url.searchParams.set('callback', callback);
+    const queryMap = {
+      apiKey: 'api_key',
+      domain: 'domain',
+      orderId: 'order_id',
+      sellerName: 'seller_name',
+      customerName: 'customer_name',
+      customerPhone: 'customer_phone',
+      paymentMethod: 'payment_method',
+      paymentMethods: 'payment_methods',
+      receiverNumber: 'receiver_number',
+      merchantNumber: 'merchant_number',
+      returnUrl: 'return_url'
+    };
+    Object.entries(queryMap).forEach(([key, param]) => {
+      const value = opts[key];
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(param, Array.isArray(value) ? value.join(',') : String(value));
+      }
+    });
 
     const popup = window.open(url.toString(), 'GatewayCheckout', `width=${width},height=${height},left=${left},top=${top}`);
     if (!popup) {

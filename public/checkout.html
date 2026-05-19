@@ -3,204 +3,105 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Checkout Client</title>
+  <title>GatewayFlow Checkout</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
-  <main class="shell checkout-shell">
-    <header class="topbar checkout-topbar">
-      <div>
-        <p class="eyebrow">Merchant checkout</p>
-        <h1>Checkout Client</h1>
-        <p class="muted">Verify payments with transaction ID and amount.</p>
+<body class="gateway-checkout-page">
+  <main class="gateway-popup-shell">
+    <section class="gateway-popup-card" aria-live="polite">
+      <div class="gateway-browserbar">
+        <span></span><span></span><span></span>
+        <strong>Secured by GatewayFlow</strong>
       </div>
-      <a class="button-link secondary" href="/">Dashboard</a>
-    </header>
 
-    <section class="checkout-grid">
-      <form id="checkoutConfigForm" class="panel">
-        <div class="section-title">
-          <h2>Gateway</h2>
-          <span id="configStatus" class="badge warning">Unsaved</span>
+      <header class="gateway-popup-head">
+        <div>
+          <p class="eyebrow">GatewayFlow Checkout</p>
+          <h1 id="merchantTitle">Merchant payment</h1>
+          <p id="merchantDomain" class="muted">No TrxID required</p>
         </div>
+        <strong id="headerAmount">Tk 0.00</strong>
+      </header>
 
-        <label for="gatewayEndpoint">Verify endpoint</label>
-        <input id="gatewayEndpoint" value="/api/merchant/verify" required />
+      <section id="stepMethods" class="gateway-popup-step">
+        <p class="muted">Choose the payment system enabled for this brand.</p>
+        <div id="walletGrid" class="gateway-wallet-grid"></div>
+        <button id="methodNextBtn" type="button">Continue</button>
+      </section>
 
-        <label for="gatewayApiKey">Website API key</label>
-        <input id="gatewayApiKey" placeholder="pg_live_..." required />
-
-        <label for="gatewayDomain">Website domain</label>
-        <input id="gatewayDomain" placeholder="example.com" required />
-
-        <button type="submit">Save Gateway</button>
-        <p id="configMessage" class="notice" aria-live="polite"></p>
-      </form>
-
-      <section class="panel checkout-summary">
-        <div class="summary-line">
-          <span>Order</span>
-          <strong id="summaryOrder">ORDER</strong>
-        </div>
-        <div class="summary-line">
-          <span>Amount</span>
-          <strong id="summaryAmount">Tk 0.00</strong>
-        </div>
-        <div class="summary-line">
-          <span>Status</span>
-          <strong id="summaryStatus">Ready</strong>
+      <section id="stepPhone" class="gateway-popup-step hidden">
+        <div id="walletHero" class="gateway-wallet-hero"></div>
+        <label for="payerNumber">Your wallet number</label>
+        <input id="payerNumber" type="tel" inputmode="tel" maxlength="14" placeholder="01XXXXXXXXX" required />
+        <div class="gateway-actions">
+          <button id="phoneBackBtn" type="button" class="secondary">Back</button>
+          <button id="phoneNextBtn" type="button">Next</button>
         </div>
       </section>
-    </section>
 
-    <section class="checkout-grid main-checkout">
-      <form id="paymentVerifyForm" class="panel checkout-card">
-        <div class="section-title">
-          <h2>Payment</h2>
-          <span class="badge dark">VERIFY</span>
+      <section id="stepInstructions" class="gateway-popup-step hidden">
+        <div class="gateway-receiver-box">
+          <span>Send money to this merchant number</span>
+          <strong id="receiverNumberText">Not configured</strong>
+          <button id="copyReceiverBtn" type="button" class="secondary tiny">Copy number</button>
         </div>
-
-        <label for="orderId">Order ID</label>
-        <input id="orderId" required />
-
-        <label for="sellerName">Seller name</label>
-        <input id="sellerName" placeholder="Merchant or seller name" />
-
-        <label for="buyerName">Buyer name</label>
-        <input id="buyerName" placeholder="Customer name" />
-
-        <label for="buyerPhone">Buyer phone (sender)</label>
-        <input id="buyerPhone" type="tel" inputmode="tel" pattern="0[1-9][0-9]{8,9}" maxlength="14" placeholder="01XXXXXXXXX" />
-
-        <label for="buyerAddress">Buyer address</label>
-        <input id="buyerAddress" placeholder="Customer address" />
-
-        <label for="paymentAmount">Amount</label>
-        <input id="paymentAmount" type="number" min="1" step="0.01" value="500" required />
-
-        <label for="transactionId">Transaction ID</label>
-        <input id="transactionId" placeholder="Customer TrxID" required />
-
-        <label for="returnUrl">Return URL</label>
-        <input id="returnUrl" placeholder="https://shop.example/order-return" />
-
-        <button type="submit">Verify Payment</button>
-        <p id="paymentMessage" class="notice" aria-live="polite"></p>
-        <button id="startPaymentBtn" type="button" class="button-link tiny-link" style="margin-top:12px;">Start Payment</button>
-      </form>
-
-      <section class="panel">
-        <div class="section-title">
-          <h2>Response</h2>
-          <button id="copyPayloadBtn" type="button" class="secondary tiny">Copy</button>
+        <div class="gateway-tutorial">
+          <div><b>1</b><span id="tutorialOne">Open wallet app and choose Payment.</span></div>
+          <div><b>2</b><span id="tutorialTwo">Send the exact amount to the merchant number.</span></div>
+          <div><b>3</b><span id="tutorialThree">GatewayFlow Android matches sender number, amount, and SMS receive time.</span></div>
         </div>
-        <pre id="checkoutResponse" class="code-block checkout-response"></pre>
+        <button id="paidBtn" type="button">I have paid</button>
+        <small class="muted">The popup waits up to 2 minutes for Android SMS server confirmation.</small>
       </section>
+
+      <section id="stepWaiting" class="gateway-result hidden">
+        <span class="gateway-beep">BEEP</span>
+        <h2>Waiting for Android SMS</h2>
+        <p id="waitingText">Android listener is checking the sender number and exact amount.</p>
+        <strong id="countdownText">2:00</strong>
+      </section>
+
+      <section id="stepSuccess" class="gateway-result success hidden">
+        <span>OK</span>
+        <h2>Payment Successful</h2>
+        <p id="successText">Server confirmed the matching SMS payment.</p>
+        <button id="doneBtn" type="button">Done</button>
+      </section>
+
+      <section id="stepFailed" class="gateway-result failed hidden">
+        <span>!</span>
+        <h2>Payment Failed</h2>
+        <p id="failedText">No matching SMS arrived within 2 minutes.</p>
+        <button id="tryAgainBtn" type="button">Try Again</button>
+      </section>
+
+      <details class="gateway-config-details">
+        <summary>Developer config</summary>
+        <form id="checkoutConfigForm">
+          <label for="gatewayEndpoint">Verify endpoint</label>
+          <input id="gatewayEndpoint" value="/api/merchant/verify" required />
+          <label for="gatewayApiKey">Website API key</label>
+          <input id="gatewayApiKey" placeholder="pg_live_..." required />
+          <label for="gatewayDomain">Website domain</label>
+          <input id="gatewayDomain" placeholder="example.com" required />
+          <label for="orderId">Order ID</label>
+          <input id="orderId" required />
+          <label for="sellerName">Seller name</label>
+          <input id="sellerName" placeholder="Merchant or seller name" />
+          <label for="customerName">Customer name</label>
+          <input id="customerName" placeholder="Customer name" />
+          <label for="paymentAmount">Amount</label>
+          <input id="paymentAmount" type="number" min="1" step="0.01" value="500" required />
+          <label for="returnUrl">Return URL</label>
+          <input id="returnUrl" placeholder="https://shop.example/order-return" />
+          <button type="submit">Save config</button>
+          <p id="configMessage" class="notice"></p>
+        </form>
+      </details>
+
+      <pre id="checkoutResponse" class="code-block checkout-response"></pre>
     </section>
   </main>
   <script src="/checkout.js"></script>
-  <script>
-  (function(){
-    const params = new URLSearchParams(location.search);
-    const initialAmount = params.get('amount');
-    const callback = params.get('callback');
-
-    const amountInput = document.getElementById('paymentAmount');
-    if (initialAmount && amountInput) amountInput.value = initialAmount;
-
-    const startBtn = document.getElementById('startPaymentBtn');
-    const buyerPhoneInput = document.getElementById('buyerPhone');
-    const responsePre = document.getElementById('checkoutResponse');
-    const summaryStatus = document.getElementById('summaryStatus');
-
-    let pollInterval = null;
-
-    function normalizePhone(raw) {
-      let s = String(raw || '').trim();
-      // remove spaces, dashes, parentheses
-      s = s.replace(/[^0-9+]/g, '');
-      // handle +880 or 880 (Bangladesh) -> leading 0
-      if (s.startsWith('+880')) s = '0' + s.slice(4);
-      if (s.startsWith('880')) s = '0' + s.slice(3);
-      // if user entered without leading 0 but starts with 1 and length 10, add 0
-      if (!s.startsWith('0') && s.length === 10 && s.startsWith('1')) s = '0' + s;
-      return s;
-    }
-
-    startBtn.addEventListener('click', async function(){
-      const amount = Number(document.getElementById('paymentAmount').value || 0);
-      let buyerPhone = normalizePhone(buyerPhoneInput.value);
-      buyerPhoneInput.value = buyerPhone; // show normalized value to user
-      if (!buyerPhone) {
-        alert('Enter your phone number to receive SMS');
-        return;
-      }
-
-      summaryStatus.textContent = 'Initiating...';
-
-      try {
-        const res = await fetch('/api/payment/gateway/initiate', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ paymentMethod: 'bkash', senderPhone: buyerPhone, receiverPhone: '', amount })
-        });
-        const data = await res.json();
-        responsePre.textContent = JSON.stringify(data, null, 2);
-        if (!data.paymentId) {
-          summaryStatus.textContent = 'Failed to initiate';
-          return;
-        }
-
-        summaryStatus.textContent = 'Waiting for verification...';
-        const paymentId = data.paymentId;
-
-        // Poll for status
-        pollInterval = setInterval(async () => {
-          try {
-            const s = await fetch(`/api/payment/gateway/status/${paymentId}`);
-            if (!s.ok) return;
-            const d = await s.json();
-            responsePre.textContent = JSON.stringify(d, null, 2);
-            if (d.status === 'verified') {
-              clearInterval(pollInterval);
-              summaryStatus.textContent = 'Verified';
-              const msg = { type: 'payment_status', paymentId, status: 'verified', transactionId: d.transactionId, amount: d.amount };
-              try { window.opener && window.opener.postMessage(msg, '*'); } catch(e){}
-              if (callback) {
-                try {
-                  // Validate callback against server allowlist
-                  const cfg = await fetch('/api/config');
-                  if (cfg.ok) {
-                    const json = await cfg.json();
-                    const allowed = json.allowedCallbacks || [];
-                    try {
-                      const cbUrl = new URL(callback);
-                      if (allowed.includes(cbUrl.origin) || allowed.includes(cbUrl.hostname)) {
-                        cbUrl.searchParams.set('paymentId', paymentId);
-                        cbUrl.searchParams.set('status', 'verified');
-                        if (d.transactionId) cbUrl.searchParams.set('txn', d.transactionId);
-                        location.href = cbUrl.toString();
-                        return;
-                      }
-                    } catch (e) { /* invalid callback url */ }
-                  }
-                } catch (e) { /* ignore config errors */ }
-
-                alert('Payment verified — Transaction ID: ' + (d.transactionId || ''));
-              }
-            } else if (d.status === 'expired' || d.status === 'cancelled') {
-              clearInterval(pollInterval);
-              summaryStatus.textContent = 'Failed';
-              try { window.opener && window.opener.postMessage({ type:'payment_status', paymentId, status:'failed' }, '*'); } catch(e){}
-            }
-          } catch (e) { console.error(e); }
-        }, 2000);
-      } catch (e) {
-        console.error(e);
-        summaryStatus.textContent = 'Error';
-      }
-    });
-  })();
-  </script>
 </body>
 </html>

@@ -30,7 +30,7 @@ function setMerchantCors(req, res) {
   const origin = cleanString(req.headers.origin, 300);
   res.setHeader('Access-Control-Allow-Origin', origin || '*');
   if (origin) res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
   res.setHeader('Access-Control-Max-Age', '86400');
 }

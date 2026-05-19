@@ -247,7 +247,6 @@ async function sendDashboard(res, db, clientId) {
     plans,
     docs,
     merchantGuide
-    merchantGuide
   });
 }
 
