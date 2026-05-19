@@ -4,7 +4,29 @@
 // <button onclick="GatewayWidget.open({amount:500, callback:'https://merchant.example.com/return', onComplete: r=>console.log(r)})">Pay</button>
 
 (function(global){
-  const GATEWAY_ORIGIN = location.origin;
+  function getGatewayOrigin() {
+    const script = document.currentScript;
+    const configured = script && script.dataset && script.dataset.gatewayUrl;
+    if (configured) {
+      try {
+        return new URL(configured, location.origin).origin;
+      } catch (error) {
+        // Ignore invalid override and fall back below.
+      }
+    }
+
+    if (global.GATEWAY_WIDGET_URL) {
+      try {
+        return new URL(global.GATEWAY_WIDGET_URL, location.origin).origin;
+      } catch (error) {
+        // Ignore invalid override and fall back below.
+      }
+    }
+
+    return location.origin;
+  }
+
+  const GATEWAY_ORIGIN = getGatewayOrigin();
 
   function open(opts = {}){
     const amount = opts.amount || 0;
