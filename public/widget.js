@@ -69,8 +69,12 @@
       if (e.origin !== GATEWAY_ORIGIN) return;
       const msg = e.data || {};
       if (msg.type === 'payment_status'){
-        opts.onComplete && opts.onComplete(msg);
-        window.removeEventListener('message', handleMessage);
+        opts.onStatus && opts.onStatus(msg);
+        const finalStatuses = ['verified', 'already_verified', 'manual_accepted', 'completed', 'success', 'failed', 'cancelled'];
+        if (finalStatuses.includes(String(msg.status || '').toLowerCase())) {
+          opts.onComplete && opts.onComplete(msg);
+          window.removeEventListener('message', handleMessage);
+        }
       }
     }
 

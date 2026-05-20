@@ -255,6 +255,15 @@ async function submitPayment() {
     if (['verified', 'already_verified', 'manual_accepted'].includes(data.status)) return succeed(data);
     const requestId = data.pendingVerification?.id;
     if (!requestId) return fail('Pending request was not created.');
+    notifyParent({
+      type: 'payment_status',
+      status: 'pending_sms',
+      requestId,
+      amount,
+      orderId: fields.orderId.value.trim(),
+      payerNumber,
+      message: data.message || 'Waiting for matching Android SMS.'
+    });
     pollStatus(requestId, config);
   } catch (error) {
     fail(error.message || 'Gateway request failed.');
