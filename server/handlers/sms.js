@@ -149,10 +149,6 @@ export default async function handler(req, res) {
     if (submitter.role === 'client' && ObjectId.isValid(submitter.id)) {
       payment.submittedByClientId = new ObjectId(submitter.id);
       payment.submittedByEmail = submitter.email || '';
-      if (submitter.userRole === 'admin') {
-        payment.submittedByAdmin = submitter.email || String(submitter.id);
-        payment.adminClientId = new ObjectId(submitter.id);
-      }
     }
     if (submitter.role === 'admin') {
       payment.submittedByAdmin = submitter.username || '';

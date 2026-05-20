@@ -334,7 +334,17 @@ function succeed(data) {
   clearTimers();
   ui.successText.textContent = data.message || 'Server confirmed the matching SMS payment.';
   showStep('success');
-  notifyParent({ type: 'payment_status', status: 'verified', amount: Number(fields.amount.value), orderId: fields.orderId.value, verification: data.verification || null });
+  const verification = data?.verification || null;
+  const paymentRef = verification?.payment_ref || verification?.transaction_id || data?.transaction_id || '';
+  notifyParent({
+    type: 'payment_status',
+    status: String(data?.status || 'verified').toLowerCase(),
+    amount: Number(fields.amount.value),
+    orderId: fields.orderId.value,
+    payment_ref: paymentRef,
+    transaction_id: paymentRef,
+    verification
+  });
   redirectReturn('completed', data);
 }
 
