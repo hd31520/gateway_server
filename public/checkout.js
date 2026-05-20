@@ -275,7 +275,7 @@ async function submitPayment() {
 function pollStatus(requestId, config) {
   clearInterval(pollTimer);
   let pollAttempt = 0;
-  const maxAttempts = 60; // 60 attempts × 2 seconds = 120 seconds (2 minutes)
+  const maxAttempts = 150; // 150 attempts × 2 seconds = 300 seconds (5 minutes)
   const maxRetries = 4;
   let consecutiveFailures = 0;
 
@@ -306,7 +306,7 @@ function pollStatus(requestId, config) {
       
       // Check if max attempts reached
       if (pollAttempt >= maxAttempts) {
-        fail(`No matching Android SMS arrived within 2 minutes. (${pollAttempt} poll attempts made)`);
+        fail(`No matching Android SMS arrived within 5 minutes. (${pollAttempt} poll attempts made)`);
         return;
       }
     } catch (error) {
@@ -346,13 +346,13 @@ function fail(message) {
 }
 
 function startCountdown() {
-  countdown = 120;
-  ui.countdownText.textContent = '2:00';
+  countdown = 300;
+  ui.countdownText.textContent = '5:00';
   clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
     countdown -= 1;
     ui.countdownText.textContent = `${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, '0')}`;
-    if (countdown <= 0) fail('No matching Android SMS arrived within 2 minutes.');
+    if (countdown <= 0) fail('No matching Android SMS arrived within 5 minutes.');
   }, 1000);
 }
 
