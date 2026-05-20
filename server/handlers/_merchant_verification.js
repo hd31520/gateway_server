@@ -154,24 +154,34 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
   if (!db || !payment || !amount || (!reliableTransactionId && !payerNumber)) return null;
   if (!paymentIsUnused(payment)) return null;
 
-  const query = {
+  const baseQuery = {
     status: { $in: ['pending', 'pending_sms', 'pending_review'] }
   };
+  let pendingItems = [];
+  let queriedByTransaction = false;
+
   if (reliableTransactionId) {
-    query.transaction_id = reliableTransactionId;
-  } else {
-    query.amount = amount;
+    queriedByTransaction = true;
+    pendingItems = await db.collection('merchant_verification_requests')
+      .find({ ...baseQuery, transaction_id: reliableTransactionId })
+      .sort({ createdAt: 1 })
+      .limit(50)
+      .toArray();
   }
-  const pendingItems = await db.collection('merchant_verification_requests')
-    .find(query)
-    .sort({ createdAt: 1 })
-    .limit(50)
-    .toArray();
+
+  if (!pendingItems.length) {
+    pendingItems = await db.collection('merchant_verification_requests')
+      .find({ ...baseQuery, amount })
+      .sort({ createdAt: 1 })
+      .limit(50)
+      .toArray();
+    queriedByTransaction = false;
+  }
 
   const ownedPendingItems = pendingItems.filter((item) => paymentBelongsToClient(payment, item.clientId));
   const pending = ownedPendingItems.find((item) => pendingMatchesPayment(item, payment, { amount, payerNumber, transactionId: reliableTransactionId, now }));
   if (!pending) {
-    const amountMismatch = reliableTransactionId ? ownedPendingItems[0] : null;
+    const amountMismatch = queriedByTransaction ? ownedPendingItems[0] : null;
     if (amountMismatch) {
       await db.collection('merchant_verification_requests').updateOne(
         { _id: amountMismatch._id },
