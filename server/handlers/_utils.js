@@ -333,6 +333,8 @@ export function serializeVerification(verification) {
     buyerAddress: verification.buyerAddress || '',
     callbackUrl: verification.callbackUrl || '',
     returnUrl: verification.returnUrl || '',
+    walletProvider: verification.walletProvider || '',
+    receiverNumber: verification.receiverNumber || '',
     status: verification.status || 'verified',
     createdAt: verification.createdAt
   };
@@ -357,6 +359,8 @@ export function serializeMerchantVerification(item) {
     buyerAddress: item.buyerAddress || '',
     callbackUrl: item.callbackUrl || '',
     returnUrl: item.returnUrl || '',
+    walletProvider: item.walletProvider || '',
+    receiverNumber: item.receiverNumber || '',
     status: item.status || 'pending_sms',
     adminNote: item.adminNote || '',
     reviewedBy: item.reviewedBy || '',

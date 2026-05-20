@@ -58,6 +58,8 @@ export default async function handler(req, res) {
     const buyerAddress = cleanString(body.buyer_address || body.buyerAddress || body.address, 500);
     const callbackUrl = normalizePublicUrl(body.callback_url || body.callbackUrl);
     const returnUrl = normalizePublicUrl(body.return_url || body.returnUrl);
+    const walletProvider = cleanString(body.payment_method || body.paymentMethod || body.walletProvider || body.provider, 60).toLowerCase();
+    const receiverNumber = cleanString(body.receiver_number || body.receiverNumber || body.merchant_number || body.merchantNumber, 80).replace(/\D/g, '');
     const manualAccept = body.manual === true || body.manual === 'true';
     const submittedDomain = normalizeDomain(body.domain);
     const checkoutReference = transactionId || buildCheckoutReference({ payerNumber, amount, orderId, paymentStartedAt });
@@ -146,6 +148,8 @@ export default async function handler(req, res) {
         buyerAddress,
         callbackUrl,
         returnUrl,
+        walletProvider,
+        receiverNumber,
         status: 'manual_accepted',
         createdAt: now
       };
@@ -170,6 +174,8 @@ export default async function handler(req, res) {
             buyerAddress,
             callbackUrl,
             returnUrl,
+            walletProvider,
+            receiverNumber,
             status: 'manual_accepted',
             verifiedAt: now,
             updatedAt: now
@@ -264,6 +270,8 @@ export default async function handler(req, res) {
         buyerAddress,
         callbackUrl,
         returnUrl,
+        walletProvider,
+        receiverNumber,
         now
       });
 
@@ -279,6 +287,8 @@ export default async function handler(req, res) {
           payer_number: payerNumber,
           amount,
           order_id: orderId || null,
+          payment_method: walletProvider,
+          receiver_number: receiverNumber,
           status: 'pending_sms'
         }
       });
@@ -298,6 +308,8 @@ export default async function handler(req, res) {
       buyerAddress,
       callbackUrl,
       returnUrl,
+      walletProvider,
+      receiverNumber,
       status: 'verified',
       createdAt: now
     };
@@ -323,6 +335,8 @@ export default async function handler(req, res) {
           buyerAddress,
           callbackUrl,
           returnUrl,
+          walletProvider,
+          receiverNumber,
           verifiedAt: now,
           updatedAt: now
         },

@@ -91,6 +91,8 @@ export async function upsertPendingMerchantVerification(options = {}) {
     buyerAddress = '',
     callbackUrl = '',
     returnUrl = '',
+    walletProvider = '',
+    receiverNumber = '',
     now = new Date()
   } = options;
 
@@ -116,6 +118,8 @@ export async function upsertPendingMerchantVerification(options = {}) {
     buyerAddress: cleanString(buyerAddress, 500),
     callbackUrl: cleanString(callbackUrl, 500),
     returnUrl: cleanString(returnUrl, 500),
+    walletProvider: cleanString(walletProvider, 60).toLowerCase(),
+    receiverNumber: cleanString(receiverNumber, 80).replace(/\D/g, ''),
     status: 'pending_sms',
     paymentStartedAt: startedAt,
     expiresAt,
@@ -223,6 +227,8 @@ export async function autoApprovePendingMerchantVerification(db, payment, now = 
     buyerAddress: pending.buyerAddress || '',
     callbackUrl: pending.callbackUrl || '',
     returnUrl: pending.returnUrl || '',
+    walletProvider: pending.walletProvider || '',
+    receiverNumber: pending.receiverNumber || '',
     status: 'verified',
     createdAt: now
   };

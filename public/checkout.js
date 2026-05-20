@@ -233,6 +233,8 @@ async function submitPayment() {
     seller_name: fields.sellerName.value.trim(),
     buyer_name: fields.customerName.value.trim(),
     return_url: fields.returnUrl.value.trim(),
+    payment_method: selectedWallet.provider,
+    receiver_number: selectedWallet.number,
     payment_time: new Date().toISOString()
   };
 
