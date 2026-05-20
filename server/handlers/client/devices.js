@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../_db.js';
 import { requireClient } from '../_auth.js';
-import { cleanString, publicServerError, serializeDevice } from '../_utils.js';
+import { cleanString, publicServerError, serializeDevice, serializeMerchantVerification } from '../_utils.js';
 
 export default async function handler(req, res) {
   const auth = await requireClient(req, res);
@@ -15,8 +15,26 @@ export default async function handler(req, res) {
     const clientId = new ObjectId(auth.id);
 
     if (req.method === 'GET') {
-      const devices = await db.collection('client_devices').find({ clientId }).sort({ lastSeenAt: -1 }).limit(50).toArray();
-      return res.status(200).json({ success: true, items: devices.map(serializeDevice) });
+      const [devices, pendingMerchantRequests] = await Promise.all([
+        db.collection('client_devices').find({ clientId }).sort({ lastSeenAt: -1 }).limit(50).toArray(),
+        db.collection('merchant_verification_requests')
+          .find({
+            clientId,
+            status: { $in: ['pending', 'pending_sms', 'pending_review'] },
+            $or: [
+              { expiresAt: { $exists: false } },
+              { expiresAt: { $gte: new Date(Date.now() - 2 * 60 * 1000) } }
+            ]
+          })
+          .sort({ createdAt: -1 })
+          .limit(20)
+          .toArray()
+      ]);
+      return res.status(200).json({
+        success: true,
+        items: devices.map(serializeDevice),
+        pendingMerchantRequests: pendingMerchantRequests.map(serializeMerchantVerification)
+      });
     }
 
     if (req.method === 'POST') {
@@ -51,17 +69,30 @@ export default async function handler(req, res) {
         { upsert: true }
       );
 
-      const [device, websites] = await Promise.all([
+      const [device, websites, pendingMerchantRequests] = await Promise.all([
         db.collection('client_devices').findOne({ clientId, deviceId }),
         db.collection('websites').find({
           clientId,
           $or: [{ brandStatus: 'active' }, { androidAppEnabled: true }]
-        }).sort({ updatedAt: -1 }).toArray()
+        }).sort({ updatedAt: -1 }).toArray(),
+        db.collection('merchant_verification_requests')
+          .find({
+            clientId,
+            status: { $in: ['pending', 'pending_sms', 'pending_review'] },
+            $or: [
+              { expiresAt: { $exists: false } },
+              { expiresAt: { $gte: new Date(Date.now() - 2 * 60 * 1000) } }
+            ]
+          })
+          .sort({ createdAt: -1 })
+          .limit(20)
+          .toArray()
       ]);
       return res.status(200).json({
         success: true,
         device: serializeDevice(device),
         smsSenderRules: buildSmsSenderRules(websites),
+        pendingMerchantRequests: pendingMerchantRequests.map(serializeMerchantVerification),
         wallets: websites.map((site) => ({
           brandName: site.name || site.domain,
           method: site.walletProvider || '',
