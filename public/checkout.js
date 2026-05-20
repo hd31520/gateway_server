@@ -55,6 +55,7 @@ let pollTimer = null;
 let countdownTimer = null;
 let countdown = 120;
 let remoteWallets = [];
+let lastPendingReason = '';
 
 document.getElementById('checkoutConfigForm').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -302,11 +303,13 @@ function pollStatus(requestId, config) {
       // Success response but still pending
       if (response.ok && data.status === 'pending_sms') {
         consecutiveFailures = 0; // Reset on successful response
+        lastPendingReason = data.reason || data.message || '';
       }
       
       // Check if max attempts reached
       if (pollAttempt >= maxAttempts) {
-        fail(`No matching Android SMS arrived within 5 minutes. (${pollAttempt} poll attempts made)`);
+        const detail = lastPendingReason ? ` ${lastPendingReason}` : '';
+        fail(`No matching Android SMS arrived within 5 minutes. (${pollAttempt} poll attempts made)${detail}`);
         return;
       }
     } catch (error) {

@@ -2,6 +2,7 @@ import { getDb } from '../_db.js';
 import { hashApiKey } from '../_auth.js';
 import {
   findConflictingPendingMerchantVerification,
+  clientSmsPaymentFilter,
   normalizePayerNumber,
   ownerPaymentFilter,
   paymentTimeWindow,
@@ -442,11 +443,15 @@ async function handleMerchantStatus(req, res) {
     const verification = pending.verificationId
       ? await db.collection('payment_verifications').findOne({ _id: pending.verificationId, websiteId: website._id })
       : null;
+    const pendingReason = pending.status === 'pending_sms'
+      ? await buildPendingReason(db, pending, website, amount, payerNumber)
+      : '';
     return res.status(200).json({
       success: true,
       status: pending.status || 'pending_sms',
       requestId: String(pending._id),
       message: pending.status === 'verified' ? 'Payment confirmed by Android SMS server.' : 'Waiting for matching Android SMS.',
+      reason: pendingReason,
       verification: verification ? {
         id: String(verification._id),
         transaction_id: verification.transaction_id,
@@ -461,6 +466,52 @@ async function handleMerchantStatus(req, res) {
     console.error(error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
   }
+}
+
+function normalizeDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function buildPendingReason(db, pending, website, amount, payerNumber) {
+  const cleanAmount = normalizeAmount(amount || pending?.amount);
+  const cleanPayer = normalizePayerNumber(payerNumber || pending?.payer_number);
+  if (!cleanAmount) return 'Amount is missing or invalid.';
+  if (!cleanPayer) return 'Sender number is missing; enter the payer number and try again.';
+  if (!db || !pending || !website?._id) return '';
+
+  const startedAt = normalizeDate(pending.paymentStartedAt || pending.createdAt) || new Date();
+  const expiresAt = normalizeDate(pending.expiresAt) || new Date(startedAt.getTime() + 30 * 60 * 1000);
+
+  const recentPayments = await db.collection('payments').find({
+    $and: [
+      clientSmsPaymentFilter(website.clientId),
+      { status: { $ne: 'rejected' } },
+      {
+        $or: [
+          { receivedAt: { $gte: startedAt, $lte: expiresAt } },
+          { createdAt: { $gte: startedAt, $lte: expiresAt } }
+        ]
+      }
+    ]
+  }).sort({ receivedAt: -1, createdAt: -1 }).limit(5).toArray();
+
+  if (!recentPayments.length) {
+    return 'No SMS payment found for this account in the time window. Check Android login and SMS forwarding.';
+  }
+
+  const amountMatch = recentPayments.find((item) => Number(item.amount || 0).toFixed(2) === Number(cleanAmount).toFixed(2));
+  if (!amountMatch) {
+    return 'SMS arrived but amount did not match the requested amount.';
+  }
+
+  const payerMatch = recentPayments.find((item) => normalizePayerNumber(item.payer_number) === cleanPayer);
+  if (!payerMatch) {
+    return 'SMS arrived but sender number did not match the payer number.';
+  }
+
+  return 'SMS arrived but is still pending verification. Please retry in a moment.';
 }
 
 function buildReturnUrl(returnUrl, status, transactionId, orderId) {
