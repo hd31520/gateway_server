@@ -7,7 +7,7 @@ import {
   billingRequestMatchesPayment,
   upsertBillingRequest
 } from './_billing.js';
-import { autoApprovePendingMerchantVerification } from './_merchant_verification.js';
+import { autoApprovePendingMerchantVerification, normalizePayerNumber } from './_merchant_verification.js';
 import {
   BRAND_OPENING_FEE,
   cleanString,
@@ -83,7 +83,8 @@ export default async function handler(req, res) {
     ).toUpperCase();
     const amount = normalizeAmount(firstValue(body.amount, body.receivedTk, body.received_tk));
     const receivedAt = normalizeReceivedAt(firstValue(body.received_at, body.receivedAt));
-    const payerNumber = normalizePhoneLike(firstValue(body.payer_number, body.payerNumber, body.customerNumber, body.fromNumber, body.senderNumber));
+    const rawPayer = firstValue(body.payer_number, body.payerNumber, body.customerNumber, body.fromNumber, body.senderNumber);
+    const payerNumber = normalizePayerNumber(rawPayer);
 
     if (!amount || (!transactionId && !payerNumber)) {
       return res.status(400).json({ success: false, error: 'valid amount and transaction_id or payer_number are required' });
