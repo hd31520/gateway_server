@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         items: devices.map(serializeDevice),
-        pendingMerchantRequests: pendingMerchantRequests.map(serializeMerchantVerification)
+        pendingMerchantRequests: pendingMerchantRequests.map(serializePendingForAndroid)
       });
     }
 
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
         success: true,
         device: serializeDevice(device),
         smsSenderRules: buildSmsSenderRules(websites),
-        pendingMerchantRequests: pendingMerchantRequests.map(serializeMerchantVerification),
+        pendingMerchantRequests: pendingMerchantRequests.map(serializePendingForAndroid),
         wallets: websites.map((site) => ({
           brandName: site.name || site.domain,
           method: site.walletProvider || '',
@@ -106,6 +106,16 @@ export default async function handler(req, res) {
     console.error(error);
     return res.status(500).json({ success: false, error: publicServerError(error) });
   }
+}
+
+function serializePendingForAndroid(item) {
+  const serialized = serializeMerchantVerification(item);
+  const createdAt = item?.createdAt ? new Date(item.createdAt).getTime() : Date.now();
+  const ageMs = Math.max(0, Date.now() - (Number.isNaN(createdAt) ? Date.now() : createdAt));
+  return {
+    ...serialized,
+    notificationAttempt: Math.min(4, Math.floor(ageMs / 30_000) + 1)
+  };
 }
 
 function buildSmsSenderRules(websites) {

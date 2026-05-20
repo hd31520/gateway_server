@@ -274,18 +274,60 @@ async function submitPayment() {
 
 function pollStatus(requestId, config) {
   clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
+  let pollAttempt = 0;
+  const maxAttempts = 60; // 60 attempts × 2 seconds = 120 seconds (2 minutes)
+  const maxRetries = 4;
+  let consecutiveFailures = 0;
+
+  async function doPoll() {
+    pollAttempt++;
+    const statusUrl = new URL(config.endpoint, location.origin);
+    statusUrl.searchParams.set('request_id', requestId);
+    
     try {
-      const statusUrl = new URL(config.endpoint, location.origin);
-      statusUrl.searchParams.set('request_id', requestId);
       const response = await fetch(statusUrl.toString(), { headers: { 'X-API-Key': config.apiKey } });
       const data = await response.json();
-      writeResponse({ httpStatus: response.status, ...data });
-      if (response.ok && ['verified', 'already_verified', 'manual_accepted'].includes(data.status)) succeed(data);
+      
+      writeResponse({ 
+        httpStatus: response.status, 
+        pollAttempt, 
+        ...data 
+      });
+
+      if (response.ok && ['verified', 'already_verified', 'manual_accepted'].includes(data.status)) {
+        succeed(data);
+        return;
+      }
+
+      // Success response but still pending
+      if (response.ok && data.status === 'pending_sms') {
+        consecutiveFailures = 0; // Reset on successful response
+      }
+      
+      // Check if max attempts reached
+      if (pollAttempt >= maxAttempts) {
+        fail(`No matching Android SMS arrived within 2 minutes. (${pollAttempt} poll attempts made)`);
+        return;
+      }
     } catch (error) {
-      writeResponse({ success: false, error: error.message });
+      consecutiveFailures++;
+      writeResponse({ 
+        success: false, 
+        error: error.message,
+        pollAttempt,
+        consecutiveFailures
+      });
+
+      // If too many consecutive failures (4+), bail out
+      if (consecutiveFailures > maxRetries) {
+        fail(`Network error after ${consecutiveFailures} attempts. Payment cancelled.`);
+        return;
+      }
     }
-  }, 2000);
+  }
+
+  // Poll every 2 seconds
+  pollTimer = setInterval(doPoll, 2000);
 }
 
 function succeed(data) {
