@@ -334,7 +334,19 @@ function normalizeMerchantTransactionId(value) {
 }
 
 export function normalizePayerNumber(value) {
-  return cleanString(value, 120).replace(/\D/g, '');
+  const digits = cleanString(value, 120).replace(/\D/g, '');
+  if (!digits) return '';
+
+  // Canonicalize common Bangladesh formats so +8801XXXXXXXXX, 8801XXXXXXXXX,
+  // and 01XXXXXXXXX are treated as the same payer number.
+  if (digits.startsWith('8801') && digits.length >= 13) {
+    return `0${digits.slice(-10)}`;
+  }
+  if (digits.startsWith('01') && digits.length >= 11) {
+    return digits.slice(0, 11);
+  }
+
+  return digits;
 }
 
 export function paymentTimeWindow(now = new Date()) {
@@ -358,12 +370,17 @@ export function pendingMatchesPayment(pending, payment, { amount, payerNumber, t
 }
 
 function buildPendingMatchKey(websiteId, orderId, payerNumber, amount, startedAt) {
+  const cleanOrderId = cleanString(orderId, 160);
+  const stableOrderKey = cleanOrderId
+    ? cleanOrderId.toLowerCase()
+    : `window-${Math.floor(startedAt.getTime() / (5 * 60 * 1000))}`;
+
   return [
     String(websiteId),
-    cleanString(orderId, 160) || 'no-order',
+    stableOrderKey,
     payerNumber,
     Number(amount || 0).toFixed(2),
-    Math.floor(startedAt.getTime() / 1000)
+    'merchant'
   ].join(':');
 }
 
