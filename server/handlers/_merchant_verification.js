@@ -293,6 +293,39 @@ async function markMerchantRequestVerified(db, pending, verification, now) {
       }
     }
   );
+
+  const duplicateIdentity = [];
+  if (pending?.transaction_id) {
+    duplicateIdentity.push({ transaction_id: pending.transaction_id });
+  }
+  if (pending?.order_id && pending?.payer_number && pending?.amount) {
+    duplicateIdentity.push({
+      order_id: pending.order_id,
+      payer_number: pending.payer_number,
+      amount: pending.amount
+    });
+  }
+
+  if (!duplicateIdentity.length) return;
+
+  await db.collection('merchant_verification_requests').updateMany(
+    {
+      _id: { $ne: pending._id },
+      websiteId: pending.websiteId,
+      status: { $in: ['pending', 'pending_sms', 'pending_review'] },
+      $or: duplicateIdentity
+    },
+    {
+      $set: {
+        status: verification.status || 'verified',
+        paymentId: verification.paymentId || null,
+        verificationId: verification._id,
+        verifiedAt: now,
+        updatedAt: now,
+        adminNote: 'Auto-resolved duplicate pending request after matching SMS verification'
+      }
+    }
+  );
 }
 
 function paymentBelongsToClient(payment, clientId) {
