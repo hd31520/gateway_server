@@ -349,6 +349,17 @@ function succeed(data) {
     verification
   });
   redirectReturn('completed', data);
+  schedulePopupClose();
+}
+
+function schedulePopupClose() {
+  window.setTimeout(() => {
+    try {
+      window.close();
+    } catch {
+      // Ignore popup close failure.
+    }
+  }, 900);
 }
 
 function fail(message) {
