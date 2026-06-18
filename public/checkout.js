@@ -10,6 +10,10 @@ const walletMeta = {
   other: { label: 'Wallet', tone: 'green', icon: 'Pay', action: 'Payment' }
 };
 
+const domainReceiverFallbacks = {
+  'easyschool.live': '01790071328'
+};
+
 const fields = {
   endpoint: document.getElementById('gatewayEndpoint'),
   apiKey: document.getElementById('gatewayApiKey'),
@@ -116,13 +120,18 @@ function boot() {
   });
 }
 
+function receiverFallback() {
+  const domain = normalizeDomain(fields.domain.value || params.get('domain'));
+  return normalizePhone(params.get('receiver_number') || params.get('receiverNumber') || params.get('merchant_number') || params.get('merchantNumber') || domainReceiverFallbacks[domain] || '');
+}
+
 function walletOptions() {
   if (remoteWallets.length) return remoteWallets;
   const rawMethods = (params.get('methods') || params.get('payment_methods') || params.get('paymentMethods') || params.get('payment_method') || params.get('paymentMethod') || 'bkash')
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  const receiver = params.get('receiver_number') || params.get('receiverNumber') || params.get('merchant_number') || params.get('merchantNumber') || '';
+  const receiver = receiverFallback();
   return rawMethods.map((provider, index) => {
     const meta = walletMeta[provider] || walletMeta.other;
     return {
@@ -169,7 +178,11 @@ function updateWalletHero() {
 async function fetchMerchantConfig() {
   const apiKey = fields.apiKey.value.trim();
   const domain = normalizeDomain(fields.domain.value);
-  if (!apiKey || !domain) return;
+  if (!domain) return;
+  if (!apiKey) {
+    renderWallets();
+    return;
+  }
 
   try {
     const configUrl = new URL(fields.endpoint.value.trim() || '/api/merchant/verify', location.origin);
@@ -183,12 +196,12 @@ async function fetchMerchantConfig() {
     }
 
     const methods = Array.isArray(data.paymentMethods) ? data.paymentMethods : [data.walletProvider || 'bkash'];
-    const receiver = data.walletNumber || params.get('receiver_number') || params.get('receiverNumber') || params.get('merchant_number') || params.get('merchantNumber') || '';
+    const receiver = normalizePhone(data.walletNumber || data.receiverNumber || receiverFallback());
     remoteWallets = methods.map((providerName, index) => {
       const provider = String(providerName || 'bkash').toLowerCase();
       const meta = walletMeta[provider] || walletMeta.other;
       const number = provider === String(data.walletProvider || '').toLowerCase()
-        ? (data.walletNumber || params.get(`${provider}_number`) || receiver)
+        ? (data.walletNumber || data.receiverNumber || params.get(`${provider}_number`) || receiver)
         : (params.get(`${provider}_number`) || receiver);
       return {
         id: `${provider}-remote-${index}`,
@@ -206,7 +219,7 @@ async function fetchMerchantConfig() {
       message: 'Merchant wallet loaded from GatewayFlow.',
       domain: data.domain,
       walletProvider: data.walletProvider,
-      walletNumber: data.walletNumber || ''
+      walletNumber: receiver
     });
   } catch (error) {
     writeResponse({ success: false, error: error.message });
@@ -283,7 +296,7 @@ async function submitPayment() {
 function pollStatus(requestId, config) {
   clearInterval(pollTimer);
   let pollAttempt = 0;
-  const maxAttempts = 150; // 150 attempts × 2 seconds = 300 seconds (5 minutes)
+  const maxAttempts = 150;
   const maxRetries = 4;
   let consecutiveFailures = 0;
 
@@ -307,13 +320,11 @@ function pollStatus(requestId, config) {
         return;
       }
 
-      // Success response but still pending
       if (response.ok && data.status === 'pending_sms') {
-        consecutiveFailures = 0; // Reset on successful response
+        consecutiveFailures = 0;
         lastPendingReason = data.reason || data.message || '';
       }
       
-      // Check if max attempts reached
       if (pollAttempt >= maxAttempts) {
         const detail = lastPendingReason ? ` ${lastPendingReason}` : '';
         fail(`No matching Android SMS arrived within 5 minutes. (${pollAttempt} poll attempts made)${detail}`);
@@ -328,7 +339,6 @@ function pollStatus(requestId, config) {
         consecutiveFailures
       });
 
-      // If too many consecutive failures (4+), bail out
       if (consecutiveFailures > maxRetries) {
         fail(`Network error after ${consecutiveFailures} attempts. Payment cancelled.`);
         return;
@@ -336,7 +346,6 @@ function pollStatus(requestId, config) {
     }
   }
 
-  // Poll every 2 seconds
   pollTimer = setInterval(doPoll, 2000);
 }
 
@@ -401,8 +410,8 @@ function saveConfig() {
     returnUrl: fields.returnUrl.value.trim(),
     sellerName: fields.sellerName.value.trim()
   };
-  if (!config.apiKey || !config.domain) {
-    ui.configMessage.textContent = 'Website API key and valid domain are required.';
+  if (!config.domain) {
+    ui.configMessage.textContent = 'Valid domain is required.';
     return null;
   }
   fields.domain.value = config.domain;
