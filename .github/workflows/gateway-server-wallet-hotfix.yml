@@ -1,0 +1,121 @@
+name: Gateway Server Wallet Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gateway-server-wallet-hotfix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-wallet-number:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch wallet number resolution
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              text = path.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Missing target {label} in {path}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          utils = Path('server/handlers/_utils.js')
+          utils_text = utils.read_text(encoding='utf-8')
+
+          insert_after = """export function normalizeWalletNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('1')) return `0${digits}`;
+  if (digits.length === 11 && digits.startsWith('01')) return digits;
+  return digits.slice(0, 18);
+}
+"""
+          helper = """export function normalizeWalletNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('1')) return `0${digits}`;
+  if (digits.length === 11 && digits.startsWith('01')) return digits;
+  return digits.slice(0, 18);
+}
+
+export function resolveWebsiteWalletNumber(website) {
+  const candidates = [
+    website?.walletNumber,
+    website?.receiverNumber,
+    website?.receiver_number,
+    website?.merchantNumber,
+    website?.merchant_number,
+    website?.paymentNumber,
+    website?.payment_number,
+    website?.bkashNumber,
+    website?.bkash_number,
+    website?.nagadNumber,
+    website?.nagad_number,
+    website?.wallet?.number,
+    website?.wallet?.receiverNumber,
+    website?.payment?.receiverNumber,
+    website?.paymentSettings?.walletNumber,
+    website?.paymentSettings?.receiverNumber
+  ];
+
+  for (const value of candidates) {
+    const number = normalizeWalletNumber(value);
+    if (number) return number;
+  }
+
+  return '';
+}
+"""
+          if 'export function resolveWebsiteWalletNumber' not in utils_text:
+              if insert_after not in utils_text:
+                  raise SystemExit('normalizeWalletNumber block not found')
+              utils_text = utils_text.replace(insert_after, helper, 1)
+
+          utils_text = utils_text.replace("walletNumber: website.walletNumber || '',", "walletNumber: resolveWebsiteWalletNumber(website),")
+          utils.write_text(utils_text, encoding='utf-8')
+
+          verify = Path('server/handlers/merchant/verify.js')
+          verify_text = verify.read_text(encoding='utf-8')
+          if 'resolveWebsiteWalletNumber' not in verify_text.split('} from')[0]:
+              verify_text = verify_text.replace(
+                  "  publicServerError,\n  rateLimit,",
+                  "  publicServerError,\n  rateLimit,\n  resolveWebsiteWalletNumber,",
+                  1
+              )
+          verify_text = verify_text.replace(
+              "        walletNumber: website.walletNumber || '',",
+              "        walletNumber: resolveWebsiteWalletNumber(website),",
+              1
+          )
+          verify.write_text(verify_text, encoding='utf-8')
+
+          checkout = Path('public/checkout.js')
+          checkout_text = checkout.read_text(encoding='utf-8')
+          checkout_text = checkout_text.replace(
+              "const receiver = data.walletNumber || params.get('receiver_number') || params.get('receiverNumber') || params.get('merchant_number') || params.get('merchantNumber') || '';",
+              "const receiver = normalizePhone(data.walletNumber || data.receiverNumber || params.get('receiver_number') || params.get('receiverNumber') || params.get('merchant_number') || params.get('merchantNumber') || '');",
+              1
+          )
+          checkout_text = checkout_text.replace(
+              "walletNumber: data.walletNumber || ''",
+              "walletNumber: receiver",
+              1
+          )
+          checkout.write_text(checkout_text, encoding='utf-8')
+          PY
+      - name: Check syntax
+        run: npm run check
+      - name: Commit hotfix and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/gateway-server-wallet-hotfix.yml
+          git add server/handlers/_utils.js server/handlers/merchant/verify.js public/checkout.js
+          git diff --cached --check
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Fix merchant receiver wallet number resolution"
+          git push
