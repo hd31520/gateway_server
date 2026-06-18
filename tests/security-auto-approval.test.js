@@ -465,6 +465,12 @@ class MemoryCollection {
     this.items.push(item);
     return { insertedId: item._id };
   }
+
+  async updateMany(query, update) {
+    const items = this.items.filter((entry) => matches(entry, query));
+    items.forEach((item) => applyUpdate(item, update));
+    return { matchedCount: items.length, modifiedCount: items.length };
+  }
 }
 
 function matches(item, query = {}) {

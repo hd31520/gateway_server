@@ -182,14 +182,21 @@ async function fetchMerchantConfig() {
       return;
     }
 
-    const provider = String(data.walletProvider || 'bkash').toLowerCase();
-    const meta = walletMeta[provider] || walletMeta.other;
-    remoteWallets = [{
-      id: `${provider}-remote`,
-      provider,
-      number: normalizePhone(data.walletNumber || ''),
-      ...meta
-    }];
+    const methods = Array.isArray(data.paymentMethods) ? data.paymentMethods : [data.walletProvider || 'bkash'];
+    const receiver = data.walletNumber || params.get('receiver_number') || params.get('receiverNumber') || params.get('merchant_number') || params.get('merchantNumber') || '';
+    remoteWallets = methods.map((providerName, index) => {
+      const provider = String(providerName || 'bkash').toLowerCase();
+      const meta = walletMeta[provider] || walletMeta.other;
+      const number = provider === String(data.walletProvider || '').toLowerCase()
+        ? (data.walletNumber || params.get(`${provider}_number`) || receiver)
+        : (params.get(`${provider}_number`) || receiver);
+      return {
+        id: `${provider}-remote-${index}`,
+        provider,
+        number: normalizePhone(number),
+        ...meta
+      };
+    });
     fields.domain.value = data.domain || domain;
     if (!fields.sellerName.value && data.merchantName) fields.sellerName.value = data.merchantName;
     renderWallets();
