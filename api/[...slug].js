@@ -1,4 +1,11 @@
 import { cleanString, setCors, setSecurityHeaders } from '../server/handlers/_utils.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const handlersRoot = path.join(__dirname, '..', 'server', 'handlers');
 
 const MAX_BODY_BYTES = 1_048_576;
 
@@ -78,17 +85,42 @@ export default async function handler(req, res) {
       return res.status(error.statusCode || 400).json({ success: false, error: error.message || 'Invalid request body' });
     }
 
+    let resolvedPath = null;
+    let resolvedRoute = null;
+    let parts = route.split('/');
+
+    while (parts.length > 0) {
+      const currentRoute = parts.join('/');
+      const filePath = path.join(handlersRoot, `${currentRoute}.js`);
+      const indexPath = path.join(handlersRoot, currentRoute, 'index.js');
+
+      try {
+        await fs.access(filePath);
+        resolvedPath = filePath;
+        resolvedRoute = currentRoute;
+        break;
+      } catch {
+        try {
+          await fs.access(indexPath);
+          resolvedPath = indexPath;
+          resolvedRoute = currentRoute;
+          break;
+        } catch {
+          parts.pop();
+        }
+      }
+    }
+
+    if (!resolvedPath) {
+      return res.status(404).json({ success: false, error: 'Handler not found' });
+    }
+
     let mod;
     try {
-      const handlerPath = new URL(`../server/handlers/${route}.js`, import.meta.url);
-      mod = await import(handlerPath.href);
-    } catch (error) {
-      try {
-        const indexPath = new URL(`../server/handlers/${route}/index.js`, import.meta.url);
-        mod = await import(indexPath.href);
-      } catch (indexError) {
-        return res.status(404).json({ success: false, error: 'Handler not found' });
-      }
+      mod = await import(pathToFileURL(resolvedPath).href);
+    } catch (importError) {
+      console.error('Import error for route', resolvedRoute, importError);
+      return res.status(500).json({ success: false, error: 'Failed to load route handler' });
     }
 
     const fn = mod && (mod.default || mod.handler || mod);

@@ -69,41 +69,44 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  const filePath = path.resolve(handlersRoot, `${route}.js`);
-  const indexPath = path.resolve(handlersRoot, route, 'index.js');
-  if (!isInsideDirectory(handlersRoot, filePath)) {
+  let resolvedPath = null;
+  let parts = route.split('/');
+
+  while (parts.length > 0) {
+    const currentRoute = parts.join('/');
+    const filePath = path.resolve(handlersRoot, `${currentRoute}.js`);
+    const indexPath = path.resolve(handlersRoot, currentRoute, 'index.js');
+
+    if (isInsideDirectory(handlersRoot, filePath)) {
+      try {
+        await fs.access(filePath);
+        resolvedPath = filePath;
+        break;
+      } catch {
+        try {
+          await fs.access(indexPath);
+          resolvedPath = indexPath;
+          break;
+        } catch {
+          parts.pop();
+        }
+      }
+    } else {
+      parts.pop();
+    }
+  }
+
+  if (!resolvedPath) {
     res.statusCode = 404;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ success: false, error: 'API route not found' }));
     return;
   }
 
-  let handlerFilePath = filePath;
-  try {
-    await fs.access(handlerFilePath);
-  } catch (error) {
-    if (!isInsideDirectory(handlersRoot, indexPath)) {
-      res.statusCode = 404;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ success: false, error: 'API route not found' }));
-      return;
-    }
-
-    try {
-      await fs.access(indexPath);
-      handlerFilePath = indexPath;
-    } catch (indexError) {
-      res.statusCode = 404;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ success: false, error: 'API route not found' }));
-      return;
-    }
-  }
-
   req.query = Object.fromEntries(url.searchParams.entries());
   req.body = await readBody(req);
 
-  const moduleUrl = `${pathToFileURL(handlerFilePath).href}?t=${Date.now()}`;
+  const moduleUrl = `${pathToFileURL(resolvedPath).href}?t=${Date.now()}`;
   const mod = await import(moduleUrl);
   await mod.default(req, res);
 }
