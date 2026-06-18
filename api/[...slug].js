@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 const handlersRoot = path.join(__dirname, '..', 'server', 'handlers');
 
 const MAX_BODY_BYTES = 1_048_576;
+const DEFAULT_API_METHODS = 'GET, POST, PUT, PATCH, OPTIONS';
 
 function safeRouteFromSlug(slug) {
   const raw = Array.isArray(slug) ? slug.join('/') : String(slug || '');
@@ -21,7 +22,7 @@ function setCorsMiddleware(req, res, route) {
   if (route === 'merchant/verify') {
     setMerchantCors(req, res);
   } else {
-    setCors(req, res);
+    setCors(req, res, DEFAULT_API_METHODS);
   }
 
   if (req.method === 'OPTIONS') {
@@ -37,7 +38,7 @@ function setMerchantCors(req, res) {
   const origin = cleanString(req.headers.origin, 300);
   res.setHeader('Access-Control-Allow-Origin', origin || '*');
   if (origin) res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', DEFAULT_API_METHODS);
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
   res.setHeader('Access-Control-Max-Age', '86400');
 }
@@ -73,7 +74,7 @@ export default async function handler(req, res) {
   try {
     const route = safeRouteFromSlug(req.query?.slug);
     if (!route) {
-      setCors(req, res);
+      setCors(req, res, DEFAULT_API_METHODS);
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
