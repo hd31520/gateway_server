@@ -228,6 +228,36 @@ Suggested workflow:
 ## 8. Security notes
 
 - Never expose admin credentials in frontend code.
+| `PATCH` | `/api/client/me?resource=settings` | Save client settings |
+| `POST` | `/api/client/me?resource=support` | Create a support ticket |
+| `POST` | `/api/client/websites` | Add a new brand/domain |
+| `POST` | `/api/client/subscription` | Manage client subscription |
+| `POST` | `/api/client/logout` | Log out the merchant session |
+| `POST` | `/api/admin` | Admin login and management actions |
+| `PATCH` | `/api/admin` | Update admin-controlled records |
+| `POST` | `/api/sms` | Android SMS upload/forwarding |
+| `GET` | `/api/apk/download` | Protected Android APK download |
+
+## 7. Subscription, domain, and user model
+
+GatewayFlow supports a multi-website setup:
+
+- One client can buy a plan.
+- Approved clients can add unlimited domains on an unlimited subscription.
+- Each domain can run payment collection for a separate website.
+- Client admins can create staff users for branches, teams, or operators.
+
+Suggested workflow:
+
+1. Admin creates or activates the client.
+2. Admin grants download permission and subscription access.
+3. Client adds domains from the portal.
+4. Client creates staff users.
+5. Each website uses the popup widget and its API key.
+
+## 8. Security notes
+
+- Never expose admin credentials in frontend code.
 - Keep API keys server-side or in the dashboard only.
 - Restrict callback URLs to approved domains.
 - Validate amount, phone number, and payment time before accepting a payment.
@@ -235,7 +265,23 @@ Suggested workflow:
 
 ## 9. Troubleshooting
 
-- If a popup does not open, confirm `window.GATEWAY_WIDGET_URL` or the script source is set correctly. The widget now resolves the gateway origin when `GatewayWidget.open()` is called, so a runtime override (`window.GATEWAY_WIDGET_URL`) works even if set after `widget.js` is loaded - just ensure the value is a valid origin (e.g. `https://your-gateway.example.com`).
+### Checkout Popup Validation Errors
+The `widget.js` script validates the integration options client-side before opening the checkout window. If the popup fails to open and alerts an error, check the following error codes:
+
+*   **`missing_api_key`**: *"Gateway API key is required. Checkout popup was not opened."*
+    *   **Fix:** Ensure that the `apiKey` property is passed to `GatewayWidget.open` and is not empty.
+*   **`invalid_domain`**: *"Valid merchant domain is required. Checkout popup was not opened."*
+    *   **Fix:** Ensure that the `domain` property is passed, or that the website's `location.hostname` resolves to a valid domain format.
+*   **`invalid_amount`**: *"Valid amount is required. Checkout popup was not opened."*
+    *   **Fix:** Ensure the `amount` passed is a number greater than 0.
+*   **`api_not_allowed`**: *"API key is not allowed for this domain. Checkout popup was not opened."*
+    *   **Fix:** Confirm that the domain matches the website domain configured under the brand in the Gateway Portal, and that you are using the correct `pg_live_...` API key generated for that brand.
+*   **`missing_receiver_number`**: *"Merchant receiver number is not configured yet. Checkout popup was not opened."*
+    *   **Fix:** Enter a valid wallet receiver number in the Gateway Portal brand settings, or pass `receiverNumber` directly in the `GatewayWidget.open` options.
+
+### General Issues
+- If a popup does not open at all without any alert, check the browser's popup blocker settings.
+- Confirm `window.GATEWAY_WIDGET_URL` or the script source is set correctly. The widget now resolves the gateway origin when `GatewayWidget.open()` is called, so a runtime override (`window.GATEWAY_WIDGET_URL`) works even if set after `widget.js` is loaded - just ensure the value is a valid origin (e.g. `https://your-gateway.example.com`).
 - If verification fails, compare sender number formatting and the exact amount.
 - If the popup stays pending, make sure the Android app is logged in, SMS permission is enabled, and the received SMS contains the same sender number and exact amount.
 - If a route looks blank after refresh, use the portal route directly, such as `/portal/transactions`.

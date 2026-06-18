@@ -104,7 +104,8 @@ const merchantGuide = {
     'Customer TrxID দেবে না। শুধু sender wallet number দেবে।',
     'Sender number + exact amount + payment time একসাথে match হতে হবে।',
     'Android app login এবং SMS permission enabled থাকতে হবে।',
-    'Callback URL আপনার নিজের website/domain-এর হওয়া উচিত।'
+    'Callback URL আপনার নিজের website/domain-এর হওয়া উচিত।',
+    'পেমেন্ট উইজেট খোলার পূর্বে অবশ্যই সঠিক apiKey, domain এবং amount পাস করতে হবে, অন্যথায় পপআপ ব্লক হবে।'
   ]
 };
 
