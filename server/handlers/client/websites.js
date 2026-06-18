@@ -183,6 +183,74 @@ export default async function handler(req, res) {
         website: serializeWebsite(website)
       });
     }
+    if (req.method === 'PUT') {
+      const body = safeRequestBody(req, res);
+      if (body === null) return;
+
+      const websiteIdStr = cleanString(body.id || body.websiteId, 80);
+      if (!websiteIdStr || !ObjectId.isValid(websiteIdStr)) {
+        return res.status(400).json({ success: false, error: 'Valid Website ID is required' });
+      }
+
+      const websiteId = new ObjectId(websiteIdStr);
+      const website = await db.collection('websites').findOne({ _id: websiteId, clientId });
+      if (!website) {
+        return res.status(404).json({ success: false, error: 'Website not found' });
+      }
+
+      const updates = {};
+
+      if (body.domain !== undefined) {
+        const domain = normalizeDomain(body.domain);
+        if (!domain) {
+          return res.status(400).json({ success: false, error: 'Valid domain is required' });
+        }
+        updates.domain = domain;
+      }
+
+      if (body.name !== undefined) {
+        updates.name = cleanString(body.name, 120) || updates.domain || website.domain;
+      }
+
+      if (body.walletProvider !== undefined || body.receiverMethod !== undefined) {
+        const walletProvider = cleanString(body.walletProvider || body.receiverMethod, 40).toLowerCase();
+        const allowedProviders = ['bkash', 'nagad', 'rocket', 'upay', 'bank', 'other'];
+        if (!allowedProviders.includes(walletProvider)) {
+          return res.status(400).json({ success: false, error: 'Select where this brand will receive money' });
+        }
+        updates.walletProvider = walletProvider;
+      }
+
+      if (body.walletNumber !== undefined || body.receiverNumber !== undefined) {
+        const walletNumber = normalizeWalletNumber(body.walletNumber || body.receiverNumber);
+        if (!walletNumber || walletNumber.length < 8) {
+          return res.status(400).json({ success: false, error: 'Valid receiver wallet number is required' });
+        }
+        updates.walletNumber = walletNumber;
+      }
+
+      if (body.receiverName !== undefined) {
+        updates.receiverName = cleanString(body.receiverName, 120) || updates.name || website.name;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ success: false, error: 'No updates provided' });
+      }
+
+      updates.updatedAt = new Date();
+
+      await db.collection('websites').updateOne(
+        { _id: websiteId, clientId },
+        { $set: updates }
+      );
+
+      const updatedWebsite = await db.collection('websites').findOne({ _id: websiteId, clientId });
+      return res.status(200).json({
+        success: true,
+        message: 'Brand updated successfully.',
+        website: serializeWebsite(updatedWebsite)
+      });
+    }
 
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   } catch (error) {
